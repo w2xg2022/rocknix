@@ -1,0 +1,920 @@
+From f50a9947690715e5b46bb8d66bb270ab317b9360 Mon Sep 17 00:00:00 2001
+From: w2xg2022 <w2xg2022@users.noreply.github.com>
+Date: Thu, 2 Jul 2026 19:31:03 +0800
+Subject: [PATCH] arm64: dts: rockchip: add MD1000 RK3566 support
+
+Add the MD1000 RK3566 board device tree and the Maxio MAE0621A PHY
+driver used by its gigabit Ethernet port. Ported from
+w2xg2022/armbian-kernel.
+---
+ arch/arm64/boot/dts/rockchip/Makefile         |   1 +
+ .../arm64/boot/dts/rockchip/rk3566-md1000.dts | 605 ++++++++++++++++++
+ drivers/net/phy/Kconfig                       |   5 +
+ drivers/net/phy/Makefile                      |   1 +
+ drivers/net/phy/maxio.c                       | 242 +++++++
+ 5 files changed, 854 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/rockchip/rk3566-md1000.dts
+ create mode 100644 drivers/net/phy/maxio.c
+
+diff --git a/arch/arm64/boot/dts/rockchip/Makefile b/arch/arm64/boot/dts/rockchip/Makefile
+index 3e8771ef6..dbbb45c81 100644
+--- a/arch/arm64/boot/dts/rockchip/Makefile
++++ b/arch/arm64/boot/dts/rockchip/Makefile
+@@ -111,6 +111,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-soquartz-blade.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-soquartz-cm4.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-soquartz-model-a.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-box-demo.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-md1000.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-lckfb-tspi.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-lubancat-1.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3566-nanopi-r3s.dtb
+diff --git a/arch/arm64/boot/dts/rockchip/rk3566-md1000.dts b/arch/arm64/boot/dts/rockchip/rk3566-md1000.dts
+new file mode 100644
+index 000000000..85417bfce
+--- /dev/null
++++ b/arch/arm64/boot/dts/rockchip/rk3566-md1000.dts
+@@ -0,0 +1,605 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++
++/*
++ * Author: Piotr Oniszczuk piotr.oniszczuk@gmail.com
++ * Based on Quartz64 DT by: Peter Geis pgwipeout@gmail.com
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/leds/common.h>
++#include <dt-bindings/pinctrl/rockchip.h>
++#include <dt-bindings/soc/rockchip,vop2.h>
++#include "rk3566.dtsi"
++
++/ {
++	model = "MD1000 RK3566";
++	compatible = "rockchip,rk3566-md1000", "rockchip,rk3566";
++
++	aliases {
++		ethernet0 = &gmac1;
++		mmc0 = &sdhci;
++		mmc1 = &sdmmc0;
++		mmc2 = &sdmmc1;
++	};
++
++	chosen: chosen {
++		stdout-path = "serial2:1500000n8";
++	};
++
++	gmac1_clkin: external-gmac1-clock {
++		compatible = "fixed-clock";
++		clock-frequency = <125000000>;
++		clock-output-names = "gmac1_clkin";
++		#clock-cells = <0>;
++	};
++
++	hdmi-con {
++		compatible = "hdmi-connector";
++		type = "a";
++
++		port {
++			hdmi_con_in: endpoint {
++				remote-endpoint = <&hdmi_out_con>;
++			};
++		};
++	};
++
++	ir-receiver {
++		compatible = "gpio-ir-receiver";
++		gpios = <&gpio4 RK_PC3 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&ir_int>;
++		linux,rc-map-name = "rc-beelink-gs1";
++		status = "okay";
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		led_work: led-0 {
++			gpios = <&gpio0 RK_PC3 GPIO_ACTIVE_HIGH>;
++			function = LED_FUNCTION_HEARTBEAT;
++			color = <LED_COLOR_ID_BLUE>;
++			linux,default-trigger = "heartbeat";
++			pinctrl-names = "default";
++			pinctrl-0 = <&led_work_en>;
++		};
++	};
++
++	sdio_pwrseq: sdio-pwrseq {
++		status = "okay";
++		compatible = "mmc-pwrseq-simple";
++		clocks = <&pmucru CLK_RTC_32K>;
++		clock-names = "ext_clock";
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_enable_h>;
++		post-power-on-delay-ms = <200>;
++		reset-gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_LOW>;
++	};
++
++	spdif_dit: spdif-dit {
++		compatible = "linux,spdif-dit";
++		#sound-dai-cells = <0>;
++	};
++
++	spdif_sound: spdif-sound {
++		compatible = "simple-audio-card";
++		simple-audio-card,name = "SPDIF";
++
++		simple-audio-card,cpu {
++			sound-dai = <&spdif>;
++		};
++
++		simple-audio-card,codec {
++			sound-dai = <&spdif_dit>;
++		};
++	};
++
++	vcc12v0_dcin: regulator-vcc12v0-dcin {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc12v0_dcin";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <12000000>;
++		regulator-max-microvolt = <12000000>;
++	};
++
++	vcc5v0_sys: regulator-vcc5v0-sys {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc5v0_sys";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		vin-supply = <&vcc12v0_dcin>;
++	};
++
++	vcc3v3_sys: regulator-vcc3v3-sys {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc3v3_sys";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		vin-supply = <&vcc12v0_dcin>;
++	};
++
++	vcc_3v3: regulator-vcc-3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_3v3";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		vin-supply = <&vcc3v3_sys>;
++	};
++
++	vcc_3v3_wifi_en: regulator-vcc-3v3-wifi-en {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_3v3_wifi_en";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		enable-active-high;
++		gpio = <&gpio2 RK_PC6 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_en_h>;
++		vin-supply = <&vcc3v3_sys>;
++	};
++
++	vcc_3v3_wifi: regulator-vcc-3v3-wifi {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc_3v3_wifi";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		enable-active-high;
++		gpio = <&gpio3 RK_PB0 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_pwren_h>;
++		vin-supply = <&vcc3v3_sys>;
++	};
++
++	vcc5v0_host: regulator-vcc5v0-host {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc5v0_host";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		enable-active-high;
++		gpio = <&gpio0 RK_PA6 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&vcc5v0_host_en &hub_rst_3v3>;
++		vin-supply = <&vcc5v0_sys>;
++	};
++
++	vcc5v0_usb: regulator-vcc5v0-usb {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc5v0_usb";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		enable-active-high;
++		gpio = <&gpio3 RK_PB3 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&vcc5v0_usb_en>;
++		vin-supply = <&vcc5v0_sys>;
++	};
++
++	vcc5v0_otg: regulator-vcc5v0-otg {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc5v0_otg";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		enable-active-high;
++		gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&vcc5v0_otg_en>;
++		vin-supply = <&vcc5v0_sys>;
++	};
++
++	vcca_1v8: regulator-vcca-1v8 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcca_1v8";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		vin-supply = <&vcc3v3_sys>;
++	};
++
++	vdda_0v9: regulator-vdda-0v9 {
++		compatible = "regulator-fixed";
++		regulator-name = "vdda_0v9";
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-min-microvolt = <900000>;
++		regulator-max-microvolt = <900000>;
++		vin-supply = <&vcc3v3_sys>;
++	};
++
++	vdd_fixed: regulator-vdd-fixed {
++		compatible = "regulator-fixed";
++		regulator-name = "vdd_fixed";
++		regulator-min-microvolt = <950000>;
++		regulator-max-microvolt = <950000>;
++		regulator-always-on;
++		regulator-boot-on;
++		vin-supply = <&vcc5v0_sys>;
++	};
++
++	vdd_cpu: regulator-vdd-cpu {
++		compatible = "pwm-regulator";
++		pwms = <&pwm0 0 5000 1>;
++		regulator-name = "vdd_cpu";
++		regulator-min-microvolt = <800000>;
++		regulator-max-microvolt = <1200000>;
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-settling-time-up-us = <250>;
++		pwm-supply = <&vcc5v0_sys>;
++	};
++
++	vdd_logic: regulator-vdd-logic {
++		compatible = "pwm-regulator";
++		pwms = <&pwm1 0 5000 1>;
++		regulator-name = "vdd_logic";
++		regulator-min-microvolt = <800000>;
++		regulator-max-microvolt = <1100000>;
++		regulator-always-on;
++		regulator-boot-on;
++		regulator-settling-time-up-us = <250>;
++		pwm-supply = <&vcc5v0_sys>;
++	};
++};
++
++&combphy1 {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&combphy2 {
++	status = "okay";
++};
++
++&cpu0 {
++	cpu-supply = <&vdd_cpu>;
++};
++
++&cpu1 {
++	cpu-supply = <&vdd_cpu>;
++};
++
++&cpu2 {
++	cpu-supply = <&vdd_cpu>;
++};
++
++&cpu3 {
++	cpu-supply = <&vdd_cpu>;
++};
++
++&gmac1 {
++	assigned-clocks = <&cru SCLK_GMAC1_RX_TX>, <&cru SCLK_GMAC1>;
++	assigned-clock-parents = <&cru SCLK_GMAC1_RGMII_SPEED>, <&gmac1_clkin>;
++	phy-mode = "rgmii";
++	clock_in_out = "input";
++	pinctrl-names = "default";
++	pinctrl-0 = <&gmac1m1_miim
++		    &gmac1m1_tx_bus2
++		    &gmac1m1_rx_bus2
++		    &gmac1m1_rgmii_clk
++		    &gmac1m1_rgmii_bus
++		    &gmac1m1_clkinout>;
++	snps,reset-gpio = <&gpio4 RK_PC2 GPIO_ACTIVE_LOW>;
++	snps,reset-active-low;
++	/* Reset time is 20ms, 100ms for rtl8211f */
++	snps,reset-delays-us = <0 20000 100000>;
++
++	tx_delay = <0x4f>;
++	rx_delay = <0x2d>;
++	phy-handle = <&rgmii_phy1>;
++	status = "okay";
++};
++
++&mdio1 {
++	rgmii_phy1: ethernet-phy@0 {
++		compatible = "ethernet-phy-id7b74.4411",
++			     "ethernet-phy-ieee802.3-c22";
++		reg = <0x0>;
++	};
++};
++
++&hdmi {
++	assigned-clocks = <&cru CLK_HDMI_CEC>;
++	assigned-clock-rates = <32768>;
++	avdd-0v9-supply = <&vdda_0v9>;
++	avdd-1v8-supply = <&vcca_1v8>;
++	status = "okay";
++};
++
++&hdmi_in {
++	hdmi_in_vp0: endpoint {
++		remote-endpoint = <&vp0_out_hdmi>;
++	};
++};
++
++&hdmi_out {
++	hdmi_out_con: endpoint {
++		remote-endpoint = <&hdmi_con_in>;
++	};
++};
++
++&hdmi_sound {
++	status = "okay";
++};
++
++&gpu {
++	status = "okay";
++};
++
++&i2s0_8ch {
++	status = "okay";
++};
++
++&i2s1_8ch {
++	rockchip,trcm-sync-tx-only;
++	status = "okay";
++};
++
++&pinctrl {
++	bt {
++		bt_enable_h: bt-enable-h {
++			rockchip,pins = <2 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		bt_host_wake_l: bt-host-wake-l {
++			rockchip,pins = <2 RK_PC0 RK_FUNC_GPIO &pcfg_pull_down>;
++		};
++
++		bt_wake_l: bt-wake-l {
++			rockchip,pins = <2 RK_PC1 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
++	sdio-pwrseq {
++		wifi_enable_h: wifi-enable-h {
++			rockchip,pins = <2 RK_PB1 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		wifi_host_wake_h: wifi-host-wake-h {
++			rockchip,pins = <2 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>;
++		};
++
++		wifi_en_h: wifi-en-h {
++			rockchip,pins = <2 RK_PC6 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		wifi_pwren_h: wifi-pwren-h {
++			rockchip,pins = <3 RK_PB0 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
++	usb {
++		vcc5v0_usb_en: vcc5v0-usb-en {
++			rockchip,pins = <3 RK_PB3 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		vcc5v0_host_en: vcc5v0-host-en {
++			rockchip,pins = <0 RK_PA6 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		vcc5v0_otg_en: vcc5v0-otg-en {
++			rockchip,pins = <0 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		hub_rst_3v3: hub-rst-3v3 {
++			rockchip,pins = <3 RK_PA6 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
++	ir {
++		ir_int: ir-int {
++			rockchip,pins = <4 RK_PC3 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
++	led {
++		led_work_en: led_work_en {
++			rockchip,pins = <0 RK_PC3 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++};
++
++&pmu_io_domains {
++	pmuio2-supply = <&vcc_3v3>;
++	vccio1-supply = <&vcc_3v3>;
++	vccio3-supply = <&vcc_3v3>;
++	vccio4-supply = <&vcca_1v8>;
++	vccio5-supply = <&vcc_3v3>;
++	vccio6-supply = <&vcca_1v8>;
++	vccio7-supply = <&vcc_3v3>;
++	status = "okay";
++};
++
++&pwm0 {
++	status = "okay";
++};
++
++&pwm1 {
++	status = "okay";
++};
++
++&sdhci {
++	bus-width = <8>;
++	mmc-hs200-1_8v;
++	non-removable;
++	status = "okay";
++};
++
++&sdmmc0 {
++	bus-width = <4>;
++	cap-sd-highspeed;
++	cd-gpios = <&gpio0 RK_PA4 GPIO_ACTIVE_LOW>;
++	disable-wp;
++	pinctrl-names = "default";
++	pinctrl-0 = <&sdmmc0_bus4 &sdmmc0_clk &sdmmc0_cmd &sdmmc0_det>;
++	vmmc-supply = <&vcc_3v3>;
++	status = "okay";
++};
++
++&sdmmc1 {
++	/* Realtek RTL8822CS WiFi on SDIO */
++	#address-cells = <1>;
++	#size-cells = <0>;
++	bus-width = <4>;
++	clock-frequency = <150000000>;
++	cap-sdio-irq;
++	cap-sd-highspeed;
++	sd-uhs-sdr104;
++	keep-power-in-suspend;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	non-removable;
++	pinctrl-names = "default";
++	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_cmd &sdmmc1_clk>;
++	vmmc-supply = <&vcc_3v3_wifi>;
++	vqmmc-supply = <&vcca_1v8>;
++	status = "okay";
++
++	rtl8822cs: wifi@1 {
++		compatible = "realtek,rtl8822cs";
++		reg = <1>;
++		interrupt-parent = <&gpio2>;
++		interrupts = <RK_PB2 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "host-wake";
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_host_wake_h>;
++	};
++};
++
++&spdif {
++	status = "okay";
++};
++
++&spi1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spi1m1_cs0 &spi1m1_pins>;
++};
++
++&tsadc {
++	/* tshut mode 0:CRU 1:GPIO */
++	rockchip,hw-tshut-mode = <1>;
++	/* tshut polarity 0:LOW 1:HIGH */
++	rockchip,hw-tshut-polarity = <0>;
++	status = "okay";
++};
++
++&uart1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart1m0_xfer &uart1m0_ctsn &uart1m0_rtsn>;
++	status = "okay";
++	uart-has-rtscts;
++
++	bluetooth {
++		compatible = "realtek,rtl8822cs-bt";
++		clocks = <&pmucru CLK_RTC_32K>;
++		clock-names = "lpo";
++		device-wake-gpios = <&gpio2 RK_PC1 GPIO_ACTIVE_HIGH>;
++		enable-gpios = <&gpio2 RK_PB7 GPIO_ACTIVE_HIGH>;
++		host-wake-gpios = <&gpio2 RK_PC0 GPIO_ACTIVE_HIGH>;
++		max-speed = <1500000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&bt_host_wake_l &bt_wake_l &bt_enable_h>;
++		vbat-supply = <&vcc3v3_sys>;
++		vddio-supply = <&vcca_1v8>;
++	};
++};
++
++&uart2 {
++	status = "okay";
++};
++
++&vop {
++	assigned-clocks = <&cru DCLK_VOP0>, <&cru DCLK_VOP1>;
++	assigned-clock-parents = <&pmucru PLL_HPLL>, <&cru PLL_VPLL>;
++	status = "okay";
++};
++
++&vop_mmu {
++	status = "okay";
++};
++
++&vp0 {
++	vp0_out_hdmi: endpoint@ROCKCHIP_VOP2_EP_HDMI0 {
++		reg = <ROCKCHIP_VOP2_EP_HDMI0>;
++		remote-endpoint = <&hdmi_in_vp0>;
++	};
++};
++
++&vpu {
++	status = "okay";
++};
++
++&vdpu_mmu {
++	status = "okay";
++};
++
++&usb2phy0 {
++	status = "okay";
++};
++
++&usb2phy0_host {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&usb2phy0_otg {
++	vbus-supply = <&vcc5v0_otg>;
++	status = "okay";
++};
++
++&usb2phy1_host {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&usb2phy1_otg {
++	phy-supply = <&vcc5v0_host>;
++	status = "okay";
++};
++
++&usb2phy1 {
++	status = "okay";
++};
++
++&usb_host0_ehci {
++	status = "okay";
++};
++
++&usb_host0_ohci {
++	status = "okay";
++};
++
++&usb_host0_xhci {
++	/delete-property/ extcon;
++	dr_mode = "host";
++	status = "okay";
++};
++
++&usb_host1_ehci {
++	status = "okay";
++};
++
++&usb_host1_ohci {
++	status = "okay";
++};
++
++&usb_host1_xhci {
++	status = "okay";
++};
+diff --git a/drivers/net/phy/Kconfig b/drivers/net/phy/Kconfig
+index d29f9f7fd..a945bb1d5 100644
+--- a/drivers/net/phy/Kconfig
++++ b/drivers/net/phy/Kconfig
+@@ -266,6 +266,11 @@ config MAXLINEAR_GPHY
+ 	  Support for the Maxlinear GPY115, GPY211, GPY212, GPY215,
+ 	  GPY241, GPY245 PHYs.
+ 
++config MAXIO_PHY
++	tristate "Maxio Ethernet PHYs"
++	help
++	  Supports Maxio MAE0621A Gigabit Ethernet PHYs.
++
+ source "drivers/net/phy/mediatek/Kconfig"
+ 
+ config MICREL_PHY
+diff --git a/drivers/net/phy/Makefile b/drivers/net/phy/Makefile
+index 23ce205ae..364352f1f 100644
+--- a/drivers/net/phy/Makefile
++++ b/drivers/net/phy/Makefile
+@@ -75,6 +75,7 @@ obj-$(CONFIG_MARVELL_PHY)	+= marvell.o
+ obj-$(CONFIG_MARVELL_88Q2XXX_PHY)	+= marvell-88q2xxx.o
+ obj-$(CONFIG_MARVELL_88X2222_PHY)	+= marvell-88x2222.o
+ obj-$(CONFIG_MAXLINEAR_GPHY)	+= mxl-gpy.o
++obj-$(CONFIG_MAXIO_PHY)	+= maxio.o
+ obj-y				+= mediatek/
+ obj-$(CONFIG_MESON_GXL_PHY)	+= meson-gxl.o
+ obj-$(CONFIG_MICREL_KS8995MA)	+= spi_ks8995.o
+diff --git a/drivers/net/phy/maxio.c b/drivers/net/phy/maxio.c
+new file mode 100644
+index 000000000..a80ad7f94
+--- /dev/null
++++ b/drivers/net/phy/maxio.c
+@@ -0,0 +1,242 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Maxio Ethernet PHY driver
++ *
++ * Supports the MAE0621A PHY used by the MD1000 RK3566 board.  The PHY
++ * may report a temporary 0xffff4411 ID before the vendor-page init
++ * sequence is applied; keep that ID so phylib can bind early enough to
++ * initialize the device.
++ */
++
++#include <linux/delay.h>
++#include <linux/module.h>
++#include <linux/phy.h>
++
++#define PHY_ID_MAE0621A_Q2C              0x7b744411
++#define PHY_ID_MAE0621A_Q3C              0x7b744412
++#define PHY_ID_MAE0621A_Q2C_BOOT         0xffff4411
++#define MAE0621A_PHY_ID_MASK             0xffffffff
++
++#define MAE0621A_PAGE_SELECT             0x1f
++
++static int maxio_read_page(struct phy_device *phydev)
++{
++	return __phy_read(phydev, MAE0621A_PAGE_SELECT);
++}
++
++static int maxio_write_page(struct phy_device *phydev, int page)
++{
++	return __phy_write(phydev, MAE0621A_PAGE_SELECT, page);
++}
++
++static int maxio_read_paged(struct phy_device *phydev, int page, u32 regnum)
++{
++	int oldpage, ret;
++
++	oldpage = phy_select_page(phydev, page);
++	if (oldpage < 0)
++		return oldpage;
++
++	ret = __phy_read(phydev, regnum);
++
++	return phy_restore_page(phydev, oldpage, ret);
++}
++
++static int maxio_write_paged(struct phy_device *phydev, int page,
++			     u32 regnum, u16 val)
++{
++	int oldpage, ret;
++
++	oldpage = phy_select_page(phydev, page);
++	if (oldpage < 0)
++		return oldpage;
++
++	ret = __phy_write(phydev, regnum, val);
++
++	return phy_restore_page(phydev, oldpage, ret);
++}
++
++static int maxio_write_mmd(struct phy_device *phydev, int devnum, u16 regnum,
++			   u16 val)
++{
++	int oldpage, ret;
++
++	if (devnum != MDIO_MMD_AN || regnum != MDIO_AN_EEE_ADV)
++		return -EOPNOTSUPP;
++
++	oldpage = phy_select_page(phydev, 0);
++	if (oldpage < 0)
++		return oldpage;
++
++	ret = __phy_write(phydev, MII_MMD_CTRL, MDIO_MMD_AN);
++	if (ret < 0)
++		goto out;
++
++	ret = __phy_write(phydev, MII_MMD_DATA, MDIO_AN_EEE_ADV);
++	if (ret < 0)
++		goto out;
++
++	ret = __phy_write(phydev, MII_MMD_CTRL, MII_MMD_CTRL_NOINCR |
++			  MDIO_MMD_AN);
++	if (ret < 0)
++		goto out;
++
++	ret = __phy_write(phydev, MII_MMD_DATA, val);
++
++out:
++	return phy_restore_page(phydev, oldpage, ret);
++}
++
++static int mae0621a_adc_ready(struct phy_device *phydev)
++{
++	static const u16 values[] = { 0xf908, 0xfa08, 0xfb08, 0xfc08 };
++	int i, ret;
++
++	ret = maxio_write_paged(phydev, 0xd96, 0x02, 0x1fff);
++	if (ret < 0)
++		return ret;
++
++	ret = maxio_write_paged(phydev, 0xd96, 0x02, 0x1000);
++	if (ret < 0)
++		return ret;
++
++	for (i = 0; i < ARRAY_SIZE(values); i++) {
++		ret = maxio_write_paged(phydev, 0xd8f, 0x0b, values[i]);
++		if (ret < 0)
++			return ret;
++
++		ret = maxio_read_paged(phydev, 0xd92, 0x0b);
++		if (ret < 0)
++			return ret;
++		if (!(ret & 0x01ff))
++			return -EAGAIN;
++	}
++
++	return 0;
++}
++
++static int mae0621a_self_check(struct phy_device *phydev)
++{
++	int i, ret = -EAGAIN;
++
++	for (i = 0; i < 50; i++) {
++		ret = mae0621a_adc_ready(phydev);
++		if (!ret)
++			break;
++
++		ret = maxio_write_paged(phydev, 0x0, MII_BMCR, 0x1940);
++		if (ret < 0)
++			return ret;
++		msleep(10);
++
++		ret = maxio_write_paged(phydev, 0x0, MII_BMCR, 0x1140);
++		if (ret < 0)
++			return ret;
++
++		ret = maxio_write_paged(phydev, 0x0, MII_BMCR, 0x9140);
++		if (ret < 0)
++			return ret;
++	}
++
++	ret = maxio_write_paged(phydev, 0xd96, 0x02, 0x0fff);
++	if (ret < 0)
++		return ret;
++
++	ret = maxio_write_paged(phydev, 0x0, MII_BMCR, 0x9140);
++	if (ret < 0)
++		return ret;
++
++	ret = maxio_write_page(phydev, 0);
++	if (ret < 0)
++		return ret;
++
++	return 0;
++}
++
++static int mae0621a_config_init(struct phy_device *phydev)
++{
++	int ret;
++
++	phydev_info(phydev, "initializing Maxio MAE0621A PHY\n");
++
++	ret = maxio_write_paged(phydev, 0xd92, 0x02, 0x200a);
++	if (ret < 0)
++		return ret;
++	ret = maxio_write_page(phydev, 0);
++	if (ret < 0)
++		return ret;
++	msleep(100);
++
++	ret = maxio_write_paged(phydev, 0xda0, 0x10, 0x0f13);
++	ret |= maxio_write_paged(phydev, 0xd92, 0x02, 0x200a);
++	ret |= maxio_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV, 0);
++	phy_disable_eee_mode(phydev, ETHTOOL_LINK_MODE_100baseT_Full_BIT);
++	phy_disable_eee_mode(phydev, ETHTOOL_LINK_MODE_1000baseT_Full_BIT);
++
++	ret |= maxio_write_paged(phydev, 0xd8f, 0x00, 0x0300);
++	ret |= maxio_write_paged(phydev, 0xd90, 0x02, 0x1555);
++	ret |= maxio_write_paged(phydev, 0xd90, 0x05, 0x2b15);
++	ret |= maxio_write_paged(phydev, 0xd96, 0x13, 0x07bc);
++	ret |= maxio_write_paged(phydev, 0xd8f, 0x08, 0x2500);
++	ret |= maxio_write_paged(phydev, 0xd91, 0x06, 0x6880);
++	ret |= maxio_write_paged(phydev, 0xd92, 0x14, 0x000a);
++	ret |= maxio_write_paged(phydev, 0xd91, 0x07, 0x5b00);
++	ret |= maxio_write_paged(phydev, 0xa43, 0x19, 0x0823);
++	ret |= maxio_write_page(phydev, 0);
++	if (ret < 0)
++		return ret;
++
++	ret = mae0621a_self_check(phydev);
++	if (ret < 0)
++		phydev_warn(phydev, "self check did not report ready: %d\n", ret);
++
++	msleep(100);
++	return 0;
++}
++
++static struct phy_driver maxio_drivers[] = {
++	{
++		PHY_ID_MATCH_EXACT(PHY_ID_MAE0621A_Q2C),
++		.name		= "Maxio MAE0621A Gigabit Ethernet",
++		.config_init	= mae0621a_config_init,
++		.config_aneg	= genphy_config_aneg,
++		.read_status	= genphy_read_status,
++		.suspend	= genphy_suspend,
++		.resume		= genphy_resume,
++		.read_page	= maxio_read_page,
++		.write_page	= maxio_write_page,
++	}, {
++		PHY_ID_MATCH_EXACT(PHY_ID_MAE0621A_Q3C),
++		.name		= "Maxio MAE0621A Q3C Gigabit Ethernet",
++		.config_init	= mae0621a_config_init,
++		.config_aneg	= genphy_config_aneg,
++		.read_status	= genphy_read_status,
++		.suspend	= genphy_suspend,
++		.resume		= genphy_resume,
++		.read_page	= maxio_read_page,
++		.write_page	= maxio_write_page,
++	}, {
++		PHY_ID_MATCH_EXACT(PHY_ID_MAE0621A_Q2C_BOOT),
++		.name		= "Maxio MAE0621A Gigabit Ethernet (ffff4411)",
++		.config_init	= mae0621a_config_init,
++		.config_aneg	= genphy_config_aneg,
++		.read_status	= genphy_read_status,
++		.suspend	= genphy_suspend,
++		.resume		= genphy_resume,
++		.read_page	= maxio_read_page,
++		.write_page	= maxio_write_page,
++	},
++};
++module_phy_driver(maxio_drivers);
++
++static struct mdio_device_id __maybe_unused maxio_tbl[] = {
++	{ PHY_ID_MAE0621A_Q2C, MAE0621A_PHY_ID_MASK },
++	{ PHY_ID_MAE0621A_Q3C, MAE0621A_PHY_ID_MASK },
++	{ PHY_ID_MAE0621A_Q2C_BOOT, MAE0621A_PHY_ID_MASK },
++	{ }
++};
++MODULE_DEVICE_TABLE(mdio, maxio_tbl);
++
++MODULE_DESCRIPTION("Maxio MAE0621A PHY driver");
++MODULE_AUTHOR("MD1000 RK3566 bringup");
++MODULE_LICENSE("GPL");
+-- 
+2.52.0
+
