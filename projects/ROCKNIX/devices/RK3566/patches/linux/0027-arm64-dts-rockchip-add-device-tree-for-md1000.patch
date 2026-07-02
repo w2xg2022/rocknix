@@ -643,30 +643,26 @@ diff --git a/drivers/net/phy/Kconfig b/drivers/net/phy/Kconfig
 index d29f9f7fd..a945bb1d5 100644
 --- a/drivers/net/phy/Kconfig
 +++ b/drivers/net/phy/Kconfig
-@@ -266,6 +266,11 @@ config MAXLINEAR_GPHY
- 	  Support for the Maxlinear GPY115, GPY211, GPY212, GPY215,
- 	  GPY241, GPY245 PHYs.
+@@ -434,6 +434,11 @@ config XILINX_GMII2RGMII
+ 	  the Reduced Gigabit Media Independent Interface(RGMII) between
+ 	  Ethernet physical media devices and the Gigabit Ethernet controller.
  
 +config MAXIO_PHY
 +	tristate "Maxio Ethernet PHYs"
 +	help
 +	  Supports Maxio MAE0621A Gigabit Ethernet PHYs.
 +
- source "drivers/net/phy/mediatek/Kconfig"
+ endif # PHYLIB
  
- config MICREL_PHY
+ config MICREL_KS8995MA
 diff --git a/drivers/net/phy/Makefile b/drivers/net/phy/Makefile
 index 23ce205ae..364352f1f 100644
 --- a/drivers/net/phy/Makefile
 +++ b/drivers/net/phy/Makefile
-@@ -75,6 +75,7 @@ obj-$(CONFIG_MARVELL_PHY)	+= marvell.o
- obj-$(CONFIG_MARVELL_88Q2XXX_PHY)	+= marvell-88q2xxx.o
- obj-$(CONFIG_MARVELL_88X2222_PHY)	+= marvell-88x2222.o
- obj-$(CONFIG_MAXLINEAR_GPHY)	+= mxl-gpy.o
+@@ -105,2 +105,3 @@
+ obj-$(CONFIG_VITESSE_PHY)	+= vitesse.o
+ obj-$(CONFIG_XILINX_GMII2RGMII) += xilinx_gmii2rgmii.o
 +obj-$(CONFIG_MAXIO_PHY)	+= maxio.o
- obj-y				+= mediatek/
- obj-$(CONFIG_MESON_GXL_PHY)	+= meson-gxl.o
- obj-$(CONFIG_MICREL_KS8995MA)	+= spi_ks8995.o
 diff --git a/drivers/net/phy/maxio.c b/drivers/net/phy/maxio.c
 new file mode 100644
 index 000000000..a80ad7f94
