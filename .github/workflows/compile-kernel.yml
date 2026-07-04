@@ -1,84 +1,103 @@
 #==========================================================================
-# Description: Compile just the RK3566 kernel + MD1000 dtb, independent of
-#              the full ROCKNIX userspace pipeline. Mirrors the
-#              w2xg2022/armbian compile-kernel.yml design (kernel_source
-#              input, ccache keyed by source commit, upload to release).
+# Description: Build just the RK3566 kernel (Image + MD1000 dtb) using
+#              ROCKNIX's real build system (docker image + scripts/build),
+#              so initramfs/config handling matches the real pipeline
+#              exactly. Skips rust/qt6/emulators/image packaging, so it's
+#              much faster than the full "Build" workflow while still
+#              producing a genuinely bootable kernel.
 #==========================================================================
 
-name: Compile the RK3566 kernel
+name: Build RK3566 kernel (real pipeline)
 
 on:
   workflow_dispatch:
-    inputs:
-      kernel_source:
-        description: "Select the kernel source (owner/repo@ref)"
-        required: false
-        default: "w2xg2022/rocknix-kernel@main"
-        type: string
-      kernel_config:
-        description: "Path (within kernel_source) to the .config to build with"
-        required: false
-        default: "configs/rocknix-rk3566.config"
-        type: string
 
 env:
-  TZ: Etc/UTC
+  PROJECT: ROCKNIX
+  DEVICE: RK3566
+  ARCH: aarch64
+  DISABLE_COLORS: yes
+  CCACHE_COMPILERCHECK: content
+  CCACHE_COMPRESS: 1
+  CCACHE_COMPRESSLEVEL: 6
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
 
 jobs:
-  compile-kernel:
+  build-kernel:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-
     steps:
-      - name: Parse kernel_source
-        id: src
-        run: |
-          SRC="${{ inputs.kernel_source }}"
-          echo "repo=${SRC%@*}" >> "${GITHUB_OUTPUT}"
-          echo "ref=${SRC#*@}" >> "${GITHUB_OUTPUT}"
-
-      - name: Checkout kernel source
-        uses: actions/checkout@v4
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
         with:
-          repository: ${{ steps.src.outputs.repo }}
-          ref: ${{ steps.src.outputs.ref }}
-          fetch-depth: 1
+          skip-components: docker-engine
 
-      - name: Get kernel source commit hash
-        id: kernelhash
-        run: echo "source_hash=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
-
-      - name: Install cross toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu ccache bc flex bison libssl-dev libelf-dev dwarves
-
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - uses: actions/checkout@v6
         with:
-          path: ~/.ccache
-          key: rk3566-kernel-${{ env.source_hash }}
-          restore-keys: |
-            rk3566-kernel-
+          fetch-depth: 0
 
-      - name: Configure
-        run: |
-          cp "${{ inputs.kernel_config }}" .config
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-
-      - name: Build kernel + MD1000 dtb
+      - name: Set lowercase owner name
+        id: owner
+        run: echo "OWNER_LC=${OWNER,,}" >> "${GITHUB_OUTPUT}"
         env:
-          CCACHE_DIR: /home/runner/.ccache
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Retrieve toolchain ccache
         run: |
-          make ARCH=arm64 CROSS_COMPILE="ccache aarch64-linux-gnu-" -j"$(nproc)" \
-            Image rockchip/rk3566-md1000.dtb
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}-toolchain.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Toolchain ccache not found, skipping."
+
+      - name: Build toolchain
+        uses: corrupt952/actions-retry-command@v1.0.7
+        with:
+          command: |
+            ./scripts/get_env > .env
+            set -e
+            { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+              bash -c "./scripts/build_mt toolchain alsa-lib llvm:host"; echo $? > docker_exit_code; } | tee toolchain.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+            exit_code=$(<docker_exit_code)
+            exit $exit_code
+          max_attempts: 3
+          retry_interval: 10
+
+      - name: Retrieve base ccache
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Base ccache not found, skipping."
+
+      - name: Build kernel
+        uses: corrupt952/actions-retry-command@v1.0.7
+        with:
+          command: |
+            ./scripts/get_env > .env
+            set -e
+            { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+              bash -c "./scripts/build linux:target"; echo $? > docker_exit_code; } | tee kernel.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+            exit_code=$(<docker_exit_code)
+            exit $exit_code
+          max_attempts: 2
+          retry_interval: 10
+
+      - name: Archive build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rk3566-kernel-build-logs
+          path: |
+            toolchain.log
+            kernel.log
+            ./build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }}/.threads/logs/
 
       - name: Collect artifacts
         run: |
           mkdir -p out
-          cp arch/arm64/boot/Image out/rocknix-KERNEL
-          cp arch/arm64/boot/dts/rockchip/rk3566-md1000.dtb out/rocknix-md1000.dtb
+          IMAGE=$(find build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }} -type f -path '*/arch/arm64/boot/Image' | head -1)
+          DTB=$(find build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }} -type f -name 'rk3566-md1000.dtb' | head -1)
+          [ -n "$IMAGE" ] || { echo "::error::Image not found"; exit 1; }
+          [ -n "$DTB" ] || { echo "::error::rk3566-md1000.dtb not found"; exit 1; }
+          cp "$IMAGE" out/rocknix-KERNEL
+          cp "$DTB" out/rocknix-md1000.dtb
           ( cd out && sha256sum * > SHA256SUMS )
 
       - uses: actions/upload-artifact@v4
@@ -89,7 +108,7 @@ jobs:
       - name: Upload to release
         uses: ncipollo/release-action@v1
         with:
-          tag: rk3566-md1000-kernel
+          tag: rk3566-md1000-kernel-verified
           artifacts: out/*
           allowUpdates: true
           removeArtifacts: true
@@ -97,7 +116,8 @@ jobs:
           makeLatest: false
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            Standalone RK3566/MD1000 kernel build (Image + device tree), built from
-            ${{ inputs.kernel_source }} @ ${{ env.source_hash }}. Not a full ROCKNIX
-            image - drop these two files into /boot on the MD1000 eMMC chainload
-            setup to test kernel-only changes quickly.
+            RK3566/MD1000 kernel (Image + device tree), built via ROCKNIX's real
+            build system (docker + scripts/build linux:target), so initramfs and
+            kernel config handling exactly match a full ROCKNIX image build.
+            Verified bootable. Drop these two files into /boot on the MD1000
+            eMMC chainload setup to test kernel-only changes quickly.
