@@ -52,7 +52,7 @@ jobs:
       - name: Install cross toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu bc flex bison libssl-dev libelf-dev dwarves
+          sudo apt-get install -y gcc-aarch64-linux-gnu ccache bc flex bison libssl-dev libelf-dev dwarves
 
       - name: Cache ccache
         uses: actions/cache@v4
