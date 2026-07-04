@@ -1,0 +1,103 @@
+#==========================================================================
+# Description: Compile just the RK3566 kernel + MD1000 dtb, independent of
+#              the full ROCKNIX userspace pipeline. Mirrors the
+#              w2xg2022/armbian compile-kernel.yml design (kernel_source
+#              input, ccache keyed by source commit, upload to release).
+#==========================================================================
+
+name: Compile the RK3566 kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_source:
+        description: "Select the kernel source (owner/repo@ref)"
+        required: false
+        default: "w2xg2022/rocknix-kernel@main"
+        type: string
+      kernel_config:
+        description: "Path (within kernel_source) to the .config to build with"
+        required: false
+        default: "configs/rocknix-rk3566.config"
+        type: string
+
+env:
+  TZ: Etc/UTC
+
+jobs:
+  compile-kernel:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Parse kernel_source
+        id: src
+        run: |
+          SRC="${{ inputs.kernel_source }}"
+          echo "repo=${SRC%@*}" >> "${GITHUB_OUTPUT}"
+          echo "ref=${SRC#*@}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.src.outputs.repo }}
+          ref: ${{ steps.src.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Get kernel source commit hash
+        id: kernelhash
+        run: echo "source_hash=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu bc flex bison libssl-dev libelf-dev dwarves
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: rk3566-kernel-${{ env.source_hash }}
+          restore-keys: |
+            rk3566-kernel-
+
+      - name: Configure
+        run: |
+          cp "${{ inputs.kernel_config }}" .config
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Build kernel + MD1000 dtb
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+        run: |
+          make ARCH=arm64 CROSS_COMPILE="ccache aarch64-linux-gnu-" -j"$(nproc)" \
+            Image rockchip/rk3566-md1000.dtb
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp arch/arm64/boot/Image out/rocknix-KERNEL
+          cp arch/arm64/boot/dts/rockchip/rk3566-md1000.dtb out/rocknix-md1000.dtb
+          ( cd out && sha256sum * > SHA256SUMS )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rk3566-md1000-kernel
+          path: out/
+
+      - name: Upload to release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: rk3566-md1000-kernel
+          artifacts: out/*
+          allowUpdates: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          makeLatest: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Standalone RK3566/MD1000 kernel build (Image + device tree), built from
+            ${{ inputs.kernel_source }} @ ${{ env.source_hash }}. Not a full ROCKNIX
+            image - drop these two files into /boot on the MD1000 eMMC chainload
+            setup to test kernel-only changes quickly.
