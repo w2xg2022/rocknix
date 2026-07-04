@@ -221,11 +221,41 @@ get_kernel_make_extracmd() {
   local DTB_PREFIX
   DTB_PREFIX=$(xmlstarlet sel -t -v "//rocknix/${DEVICE}/@dtb_prefix" "${CONFIGXML}" 2>/dev/null)
   DTB_PREFIX="${DTB_PREFIX}/"
-  xmlstarlet sel -t -m "//rocknix/${DEVICE}//file" -o "${DTB_PREFIX}" -v "." -o ".dtb " "${CONFIGXML}" 2>/dev/null
+
+  # BOARD (space-separated list of <file> basenames) narrows the dtb build
+  # list to just the requested board(s), instead of every board under this
+  # DEVICE. Leaving BOARD unset preserves the original build-everything
+  # behavior.
+  if [[ -n "${BOARD}" ]]; then
+    local b
+    for b in ${BOARD}; do
+      xmlstarlet sel -t -m "//rocknix/${DEVICE}//file[.='${b}']" -o "${DTB_PREFIX}" -v "." -o ".dtb " "${CONFIGXML}" 2>/dev/null
+    done
+  else
+    xmlstarlet sel -t -m "//rocknix/${DEVICE}//file" -o "${DTB_PREFIX}" -v "." -o ".dtb " "${CONFIGXML}" 2>/dev/null
+  fi
 }
 
 get_fdt() {
   local FDT_FILENAME=""
+
+  # If exactly one BOARD is requested and its group isn't an fdtdir
+  # (autodetect) target, point straight at that board's own dtb instead of
+  # the shared group default (e.g. the RK3566 Specific group otherwise
+  # always defaults to rk3566-powkiddy-x55.dtb regardless of which boards
+  # were actually built).
+  if [[ -n "${BOARD}" && $(wc -w <<< "${BOARD}") -eq 1 ]]; then
+    local FDT_TYPE_RAW=""
+    if [[ -n "${SUBDEVICE}" ]]; then
+      FDT_TYPE_RAW=$(xmlstarlet sel -t -v "//rocknix/${DEVICE}/${SUBDEVICE}/@fdt_type" "${CONFIGXML}" 2>/dev/null)
+    fi
+    [[ -z "${FDT_TYPE_RAW}" ]] && FDT_TYPE_RAW=$(xmlstarlet sel -t -v "//rocknix/${DEVICE}/@fdt_type" "${CONFIGXML}" 2>/dev/null)
+
+    if [[ "${FDT_TYPE_RAW}" != "fdtdir" ]]; then
+      echo "device_trees/${BOARD}.dtb"
+      return
+    fi
+  fi
 
   if [[ -n "${SUBDEVICE}" ]]; then
     FDT_FILENAME=$(xmlstarlet sel -t -v "//rocknix/${DEVICE}/${SUBDEVICE}/@fdt" "${CONFIGXML}" 2>/dev/null || true)
