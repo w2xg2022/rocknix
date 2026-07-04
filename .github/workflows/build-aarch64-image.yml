@@ -20,6 +20,10 @@ on:
         description: "build official version"
         type: string
         required: true
+      BOARD:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-aarch64-image:
@@ -28,6 +32,7 @@ jobs:
       JAVA_HOME: /usr
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
+      BOARD: ${{ inputs.BOARD }}
       ARCH: aarch64
       CACHE_KEY: ccache-aarch64-${{ inputs.DEVICE }}-image-${{ github.sha }}
       DISABLE_COLORS: yes

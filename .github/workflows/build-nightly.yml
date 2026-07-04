@@ -71,6 +71,11 @@ on:
         required: false
         default: false
         type: boolean
+      BOARD:
+        description: 'Space-separated <file> basenames to narrow the dtb build to (blank = build every board under the selected DEVICE)'
+        required: false
+        default: ''
+        type: string
   workflow_call:
   pull_request:
     types: [ assigned ]
@@ -185,6 +190,7 @@ jobs:
       OWNER_LC: ${{ needs.set-envs.outputs.OWNER_LC }}
       NIGHTLY: ${{ needs.set-envs.outputs.NIGHTLY }}
       OFFICIAL: ${{ needs.set-envs.outputs.OFFICIAL }}
+      BOARD: ${{ inputs.BOARD }}
 
   rerun-failed-jobs:
     if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && github.ref_name == 'next' && (github.event_name != 'schedule' || github.repository == 'ROCKNIX/distribution')

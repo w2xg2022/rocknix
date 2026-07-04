@@ -12,6 +12,10 @@ on:
       OWNER_LC:
         required: true
         type: string
+      BOARD:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-arm:
@@ -20,6 +24,7 @@ jobs:
     env:
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
+      BOARD: ${{ inputs.BOARD }}
       ARCH: arm
       DISABLE_COLORS: yes
       CCACHE_COMPILERCHECK: content
