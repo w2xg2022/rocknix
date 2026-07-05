@@ -67,14 +67,10 @@ jobs:
       OWNER_LC: ${{ inputs.OWNER_LC }}
       BOARD: ${{ inputs.BOARD }}
 
-  build-aarch64-mame-lr:
-    needs: build-aarch64-toolchain
-    uses: ./.github/workflows/build-aarch64-mame-lr.yml
-    secrets: inherit
-    with:
-      PROJECT: ${{ inputs.PROJECT }}
-      DEVICE: ${{ inputs.DEVICE }}
-      OWNER_LC: ${{ inputs.OWNER_LC }}
+  # build-aarch64-mame-lr disabled: the full-MAME libretro core (mame_libretro.so)
+  # is a ~4h build on the critical path and we don't use it (we use
+  # mame2003_plus/mame2010 which build in emu-libretro). mame-lr source is kept
+  # (packages/emulators/libretro/mame-lr); re-enable by reverting this commit.
 
   build-aarch64-qt6:
     needs: build-aarch64
@@ -88,7 +84,6 @@ jobs:
   build-aarch64-emu-libretro:
     needs:
       - build-aarch64
-      - build-aarch64-mame-lr
       - build-aarch64-qt6
     if: ${{ always() && !cancelled() && !contains(needs.*.result, 'failure')  }}
     uses: ./.github/workflows/build-aarch64-emu-libretro.yml
@@ -144,6 +139,5 @@ jobs:
             arm (${{ inputs.DEVICE }})
             emu-libretro (${{ inputs.DEVICE }})
             emu-standalone (${{ inputs.DEVICE }})
-            mame-lr (${{ inputs.DEVICE }})
             qt6 (${{ inputs.DEVICE }})
           failOnError: false    

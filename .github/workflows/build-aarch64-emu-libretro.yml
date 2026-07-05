@@ -99,18 +99,6 @@ jobs:
         if: ${{ inputs.DEVICE == 'RK3399' || inputs.DEVICE == 'RK3566' || inputs.DEVICE == 'RK3576' || inputs.DEVICE == 'RK3588' || inputs.DEVICE == 'S922X' || inputs.DEVICE == 'SM8250' || inputs.DEVICE == 'SM8550' }}
         run: rm build.qt6.tar.zst
 
-      - name: Download mame-lr (${{ inputs.DEVICE }})
-        uses: actions/download-artifact@v8
-        with:
-          name: mame-lr (${{ inputs.DEVICE }})
-
-      - name: Extract artifact mame-lr
-        run: |
-          tar --zstd -xf build.mame-lr.tar.zst
-
-      - name: Clean up compressed mame-lr file
-        run: rm build.mame-lr.tar.zst
-
       - name: Build
         uses: corrupt952/actions-retry-command@v1.0.7
         with:
