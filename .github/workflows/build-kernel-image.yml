@@ -1,0 +1,154 @@
+#==========================================================================
+# Option C: build only the kernel (7.0.2) + inject into a prebuilt userspace
+# image. Produces a flashable, board-specific .img.gz in ~1-1.5h instead of
+# the full ~14h pipeline. Userspace is frozen (reused from a base image);
+# refresh the base by running the full Build when userspace actually changes.
+#==========================================================================
+
+name: Build kernel + reuse userspace image
+
+on:
+  workflow_dispatch:
+    inputs:
+      BOARD:
+        description: "single board dtb to build + swap in"
+        default: "rk3566-md1000"
+        type: string
+      BASE_IMAGE_TAG:
+        description: "distribution-cache release tag holding the base userspace image"
+        default: "userspace-base-RK3566"
+        type: string
+
+env:
+  PROJECT: ROCKNIX
+  DEVICE: RK3566
+  ARCH: aarch64
+  BOARD: ${{ inputs.BOARD }}
+  DISABLE_COLORS: yes
+  CCACHE_COMPILERCHECK: content
+  CCACHE_COMPRESS: 1
+  CCACHE_COMPRESSLEVEL: 6
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+
+jobs:
+  kernel-image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
+        with:
+          skip-components: docker-engine
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set lowercase owner
+        id: owner
+        run: echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_OUTPUT"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      - name: Retrieve toolchain ccache
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}-toolchain.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "no toolchain ccache, cold"
+
+      - name: Build toolchain
+        uses: corrupt952/actions-retry-command@v1.0.7
+        with:
+          command: |
+            ./scripts/get_env > .env
+            set -e
+            { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+              bash -c "./scripts/build_mt toolchain alsa-lib llvm:host"; echo $? > docker_exit_code; } | tee toolchain.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+            exit $(<docker_exit_code)
+          max_attempts: 3
+          retry_interval: 10
+
+      - name: Retrieve base ccache
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "no base ccache, cold"
+
+      - name: Build kernel + modules
+        uses: corrupt952/actions-retry-command@v1.0.7
+        with:
+          command: |
+            ./scripts/get_env > .env
+            set -e
+            { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+              bash -c "./scripts/build linux:target"; echo $? > docker_exit_code; } | tee kernel.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+            exit $(<docker_exit_code)
+          max_attempts: 2
+          retry_interval: 10
+
+      - name: Locate kernel outputs
+        id: k
+        run: |
+          BT=build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }}
+          IMAGE=$(find $BT -type f -path '*/.image/Image' | head -1)
+          [ -z "$IMAGE" ] && IMAGE=$(find $BT -type f -path '*/arch/arm64/boot/Image' | head -1)
+          MODDIR=$(find $BT -type d -path '*/usr/lib/kernel-overlays/base/lib/modules/*' -name '[0-9]*' | head -1)
+          [ -n "$IMAGE" ] || { echo "::error::Image not found"; exit 1; }
+          [ -n "$MODDIR" ] || { echo "::error::modules dir not found"; exit 1; }
+          echo "IMAGE=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "MODDIR=$MODDIR" >> "$GITHUB_OUTPUT"
+          echo "KVER=$(basename "$MODDIR")" >> "$GITHUB_OUTPUT"
+          echo "found: Image=$IMAGE  modules=$MODDIR"
+
+      - name: Download base userspace image
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh release download "${{ inputs.BASE_IMAGE_TAG }}" \
+            --repo "${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}" \
+            --pattern '*.img.gz' --dir base --clobber
+
+      - name: Assemble image (inject modules + swap KERNEL/dtb)
+        run: |
+          set -e
+          BT=build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }}
+          IMAGE='${{ steps.k.outputs.IMAGE }}'
+          MODDIR='${{ steps.k.outputs.MODDIR }}'
+          KVER='${{ steps.k.outputs.KVER }}'
+          BASEGZ=$(ls base/*.img.gz | head -1)
+          OUT="ROCKNIX-${{ env.DEVICE }}-${{ env.BOARD }}-kernelimg-$(date +%Y%m%d)"
+          gunzip -c "$BASEGZ" > work.img
+          LOOP=$(sudo losetup -fP --show work.img)
+          sudo mkdir -p /mnt/boot
+          sudo mount ${LOOP}p1 /mnt/boot
+          echo "== boot partition =="; ls -la /mnt/boot
+          sudo unsquashfs -d root /mnt/boot/SYSTEM
+          sudo rm -rf "root/usr/lib/kernel-overlays/base/lib/modules/$KVER"
+          sudo cp -a "$MODDIR" "root/usr/lib/kernel-overlays/base/lib/modules/$KVER"
+          sudo mksquashfs root SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
+          # free space guard
+          NEWSZ=$(stat -c%s SYSTEM.new); FREE=$(df --output=avail -B1 /mnt/boot | tail -1); OLDSZ=$(stat -c%s /mnt/boot/SYSTEM)
+          if [ "$NEWSZ" -gt "$((FREE + OLDSZ))" ]; then echo "::error::new SYSTEM too big for boot partition"; exit 1; fi
+          sudo cp SYSTEM.new /mnt/boot/SYSTEM
+          sudo bash -c "md5sum SYSTEM.new | sed 's# .*# target/SYSTEM#' > /mnt/boot/SYSTEM.md5"
+          sudo cp "$IMAGE" /mnt/boot/KERNEL
+          sudo bash -c "cd /mnt/boot && md5sum KERNEL | sed 's# .*# target/KERNEL#' > KERNEL.md5"
+          for dtb in $(find $BT -type f -name "${{ env.BOARD }}.dtb"); do
+            echo "swap dtb: $(basename "$dtb")"
+            sudo cp "$dtb" "/mnt/boot/device_trees/$(basename "$dtb")"
+          done
+          sync
+          sudo umount /mnt/boot
+          sudo losetup -d "$LOOP"
+          gzip -c work.img > "${OUT}.img.gz"
+          sha256sum "${OUT}.img.gz" > "${OUT}.img.gz.sha256"
+          ls -la "${OUT}.img.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image-${{ env.BOARD }}
+          path: |
+            *.img.gz
+            *.img.gz.sha256
