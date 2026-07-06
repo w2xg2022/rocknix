@@ -103,12 +103,15 @@ jobs:
           echo "found: Image=$IMAGE  modules=$MODDIR"
 
       - name: Download base userspace image
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          gh release download "${{ inputs.BASE_IMAGE_TAG }}" \
-            --repo "${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}" \
-            --pattern '*.img.gz' --dir base --clobber
+          # curl (not gh - the maximize-space step strips gh from the runner).
+          # distribution-cache is public, so no auth needed. Asset name follows
+          # the <TAG>.img.gz convention set when seeding the base.
+          mkdir -p base
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/${{ inputs.BASE_IMAGE_TAG }}/${{ inputs.BASE_IMAGE_TAG }}.img.gz"
+          echo "downloading $URL"
+          curl -L --fail --retry 3 -o "base/${{ inputs.BASE_IMAGE_TAG }}.img.gz" "$URL"
+          ls -la base/
 
       - name: Assemble image (inject modules + swap KERNEL/dtb)
         run: |
