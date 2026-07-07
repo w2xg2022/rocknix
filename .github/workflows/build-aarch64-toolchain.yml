@@ -114,12 +114,17 @@ jobs:
       # Also publish the toolchain tree to distribution-cache so the standalone
       # Option C workflow (build-kernel-image.yml) can curl+reuse it and skip
       # rebuilding the toolchain (~30min saved per kernel-only iteration).
-      - name: Publish toolchain tree for Option C reuse
-        run: cp build.aarch64-toolchain.tar.zst toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst
+      # GitHub release assets are capped at 2GB and the tree is ~3GB, so split
+      # into <2GB numbered parts (.part00, .part01, ...); Option C cats them back.
+      - name: Split toolchain tree for Option C reuse
+        run: |
+          split -b 1900m -d --suffix-length=2 build.aarch64-toolchain.tar.zst \
+            toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part
+          ls -la toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: toolchain-tree
-          files: toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst
+          files: toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
           make_latest: false
           prerelease: true
           body: prebuilt toolchain trees (toolchain + host tools + .stamps) for Option C kernel-image reuse

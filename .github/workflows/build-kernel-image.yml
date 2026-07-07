@@ -61,15 +61,26 @@ jobs:
       - name: Reuse prebuilt toolchain tree
         id: tc
         run: |
-          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree/toolchain-tree-aarch64-${{ env.DEVICE }}.tar.zst"
-          echo "trying $URL"
-          if curl -L --fail --retry 3 -o tc.tar.zst "$URL"; then
-            tar --zstd -xf tc.tar.zst && rm tc.tar.zst
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree/toolchain-tree-aarch64-${{ env.DEVICE }}.tar.zst"
+          # Tree is published as <2GB numbered parts (.part00, .part01, ...); cat
+          # them back in order until a part 404s, then validate + extract.
+          rm -f tc.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.part${SUF}" 2>/dev/null; then
+              cat part >> tc.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf tc.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf tc.tar.zst && rm -f tc.tar.zst
             echo "reused=1" >> "$GITHUB_OUTPUT"
-            echo "prebuilt toolchain tree restored -> skipping toolchain compile"
+            echo "restored toolchain tree from $i part(s) -> skipping toolchain compile"
           else
+            rm -f tc.tar.zst
             echo "reused=0" >> "$GITHUB_OUTPUT"
-            echo "no prebuilt toolchain tree -> will compile from ccache"
+            echo "no usable toolchain tree -> will compile from ccache"
           fi
 
       - name: Retrieve toolchain ccache (fallback)
