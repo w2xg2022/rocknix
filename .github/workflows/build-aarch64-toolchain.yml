@@ -110,3 +110,19 @@ jobs:
           path: build.aarch64-toolchain.tar.zst
           compression-level: 0
           if-no-files-found: error
+
+      # Also publish the toolchain tree to distribution-cache so the standalone
+      # Option C workflow (build-kernel-image.yml) can curl+reuse it and skip
+      # rebuilding the toolchain (~30min saved per kernel-only iteration).
+      - name: Publish toolchain tree for Option C reuse
+        run: cp build.aarch64-toolchain.tar.zst toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: toolchain-tree
+          files: toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst
+          make_latest: false
+          prerelease: true
+          body: prebuilt toolchain trees (toolchain + host tools + .stamps) for Option C kernel-image reuse
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true

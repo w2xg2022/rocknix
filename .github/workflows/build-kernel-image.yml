@@ -54,12 +54,32 @@ jobs:
       - name: Install host tools
         run: sudo apt-get update && sudo apt-get install -y squashfs-tools
 
-      - name: Retrieve toolchain ccache
+      # Reuse a prebuilt toolchain tree (toolchain + host tools + .stamps) that the
+      # full pipeline's build-aarch64-toolchain job publishes to distribution-cache.
+      # With the .stamps present, `scripts/build linux:target` skips rebuilding the
+      # toolchain entirely (~30min saved). Falls back to compiling if unavailable.
+      - name: Reuse prebuilt toolchain tree
+        id: tc
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree/toolchain-tree-aarch64-${{ env.DEVICE }}.tar.zst"
+          echo "trying $URL"
+          if curl -L --fail --retry 3 -o tc.tar.zst "$URL"; then
+            tar --zstd -xf tc.tar.zst && rm tc.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "prebuilt toolchain tree restored -> skipping toolchain compile"
+          else
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "no prebuilt toolchain tree -> will compile from ccache"
+          fi
+
+      - name: Retrieve toolchain ccache (fallback)
+        if: steps.tc.outputs.reused != '1'
         run: |
           URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}-toolchain.tar"
           curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "no toolchain ccache, cold"
 
-      - name: Build toolchain
+      - name: Build toolchain (fallback)
+        if: steps.tc.outputs.reused != '1'
         uses: corrupt952/actions-retry-command@v1.0.7
         with:
           command: |
