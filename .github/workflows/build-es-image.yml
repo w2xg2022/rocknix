@@ -1,0 +1,165 @@
+#==========================================================================
+# L4: build ONLY the emulationstation (ES4All) package + inject it into a
+# prebuilt userspace image. Reuses a full build sysroot snapshot (es-sysroot)
+# so ES's heavy deps (vlc/boost/SDL2/...) are already built and only ES itself
+# recompiles (~minutes). Produces a flashable .img.gz without the ~15h full
+# pipeline. Use this for ES4All iteration; refresh the base + es-sysroot by
+# running the full Build when the userspace or ES deps actually change.
+#==========================================================================
+
+name: Build ES (ES4All) + reuse userspace image
+
+on:
+  workflow_dispatch:
+    inputs:
+      BOARD:
+        description: "board (for output image naming only; ES is board-agnostic)"
+        default: "rk3566-md1000"
+        type: string
+      BASE_IMAGE_TAG:
+        description: "distribution-cache release tag holding the base userspace image"
+        default: "userspace-base-RK3566"
+        type: string
+
+env:
+  PROJECT: ROCKNIX
+  DEVICE: RK3566
+  ARCH: aarch64
+  BOARD: ${{ inputs.BOARD }}
+  DISABLE_COLORS: yes
+  CCACHE_COMPILERCHECK: content
+  CCACHE_COMPRESS: 1
+  CCACHE_COMPRESSLEVEL: 6
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+
+jobs:
+  es-image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
+        with:
+          skip-components: docker-engine
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set lowercase owner
+        id: owner
+        run: echo "OWNER_LC=${OWNER,,}" >> "$GITHUB_OUTPUT"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      # Restore the full build sysroot (toolchain + populated target sysroot +
+      # .stamps, minus the per-package build/ dir) captured from a full build.
+      # With deps stamped, `scripts/build emulationstation:target` recompiles
+      # only ES. Published as <2GB numbered parts (.part00, .part01, ...).
+      - name: Retrieve es-sysroot snapshot
+        id: sr
+        run: |
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/es-sysroot/es-sysroot-aarch64-${{ env.DEVICE }}.tar.zst"
+          rm -f sr.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.part${SUF}" 2>/dev/null; then
+              cat part >> sr.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf sr.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf sr.tar.zst && rm -f sr.tar.zst
+            echo "restored es-sysroot from $i part(s)"
+          else
+            echo "::error::es-sysroot snapshot not found or corrupt. Seed it from a full build's 'aarch64 (${{ env.DEVICE }})' artifact first."
+            exit 1
+          fi
+
+      - name: Retrieve base ccache
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ env.DEVICE }}.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "no base ccache, cold ES compile"
+
+      - name: Build emulationstation (ES4All)
+        uses: corrupt952/actions-retry-command@v1.0.7
+        with:
+          command: |
+            ./scripts/get_env > .env
+            set -e
+            { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+              bash -c "./scripts/build emulationstation:target"; echo $? > docker_exit_code; } | tee es.log | grep -E --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
+            exit $(<docker_exit_code)
+          max_attempts: 2
+          retry_interval: 10
+
+      - name: Install emulationstation into a clean staging
+        run: |
+          set -e
+          BT=build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }}
+          # Force a fresh install into the image staging by clearing ES's install
+          # stamp, then run install for just this package.
+          rm -f "$BT"/.stamps/emulationstation/install_target || true
+          rm -rf "$BT"/image || true
+          ./scripts/get_env > .env
+          { docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ steps.owner.outputs.OWNER_LC }}/rocknix-build:latest" \
+            bash -c "./scripts/install emulationstation:target"; echo $? > docker_exit_code; }
+          exit $(<docker_exit_code)
+
+      - name: Locate ES install staging
+        id: stage
+        run: |
+          BT=build.ROCKNIX-${{ env.DEVICE }}.${{ env.ARCH }}
+          BIN=$(find "$BT" -type f -path '*/usr/bin/emulationstation' | head -1)
+          [ -n "$BIN" ] || { echo "::error::installed emulationstation binary not found"; exit 1; }
+          ROOT="${BIN%/usr/bin/emulationstation}"
+          echo "ROOT=$ROOT" >> "$GITHUB_OUTPUT"
+          echo "staging root: $ROOT"
+          ls -la "$ROOT/usr/bin/" | head
+
+      - name: Download base userspace image
+        run: |
+          mkdir -p base
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/${{ inputs.BASE_IMAGE_TAG }}/${{ inputs.BASE_IMAGE_TAG }}.img.gz"
+          echo "downloading $URL"
+          curl -L --fail --retry 3 -o "base/${{ inputs.BASE_IMAGE_TAG }}.img.gz" "$URL"
+          ls -la base/
+
+      - name: Assemble image (overlay ES4All into SYSTEM)
+        run: |
+          set -e
+          ROOT='${{ steps.stage.outputs.ROOT }}'
+          BASEGZ=$(ls base/*.img.gz | head -1)
+          OUT="ROCKNIX-${{ env.DEVICE }}-${{ env.BOARD }}-es4all-$(date +%Y%m%d)"
+          gunzip -c "$BASEGZ" > work.img
+          LOOP=$(sudo losetup -fP --show work.img)
+          sudo mkdir -p /mnt/boot
+          sudo mount ${LOOP}p1 /mnt/boot
+          echo "== boot partition =="; ls -la /mnt/boot
+          sudo unsquashfs -d root /mnt/boot/SYSTEM
+          # Overlay the freshly-built ES4All files onto the base rootfs.
+          sudo cp -a "$ROOT"/. root/
+          sudo mksquashfs root SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
+          # free space guard
+          NEWSZ=$(stat -c%s SYSTEM.new); FREE=$(df --output=avail -B1 /mnt/boot | tail -1); OLDSZ=$(stat -c%s /mnt/boot/SYSTEM)
+          if [ "$NEWSZ" -gt "$((FREE + OLDSZ))" ]; then echo "::error::new SYSTEM too big for boot partition"; exit 1; fi
+          sudo cp SYSTEM.new /mnt/boot/SYSTEM
+          sudo bash -c "md5sum SYSTEM.new | sed 's# .*# target/SYSTEM#' > /mnt/boot/SYSTEM.md5"
+          sync
+          sudo umount /mnt/boot
+          sudo losetup -d "$LOOP"
+          gzip -c work.img > "${OUT}.img.gz"
+          sha256sum "${OUT}.img.gz" > "${OUT}.img.gz.sha256"
+          ls -la "${OUT}.img.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: es-image-${{ env.BOARD }}
+          path: |
+            *.img.gz
+            *.img.gz.sha256
