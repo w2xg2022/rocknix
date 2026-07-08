@@ -14,12 +14,13 @@
 
 复古固件好不好用，**GPU 驱动栈 × 图形 API** 决定天花板（尤其 PSP/DC/N64 这类吃 GPU 的模拟器）。按优先级排：
 
-| 志愿 | 驱动栈 × API | 代表 | PSP |
-|:---:|---|---|---|
-| 🥇 一 | Mesa Panfrost + **Vulkan（PanVK）** | RK3566/68、RK3576、RK3588 | 4X 1080p 顺 |
-| 🥈 二 | Mesa Panfrost + **GLES** | 无 Vulkan 时的退路 | 中低倍数 |
-| 🥉 三 | **闭源厂商 BSP + GLES** | Amlogic S905 系列 | 受限 |
-| 🏅 四 | 软件渲染 / 无加速 | 老旧 SoC | 仅轻量 |
+<table width="100%">
+<tr><th>志愿</th><th>驱动栈 × API</th><th>代表</th><th>PSP</th></tr>
+<tr><td align="center" nowrap>🥇 一</td><td>Mesa Panfrost + <b>Vulkan（PanVK）</b></td><td>RK3566/68、RK3576、RK3588</td><td nowrap>4X 1080p 顺</td></tr>
+<tr><td align="center" nowrap>🥈 二</td><td>Mesa Panfrost + <b>GLES</b></td><td>无 Vulkan 时的退路</td><td nowrap>中低倍数</td></tr>
+<tr><td align="center" nowrap>🥉 三</td><td><b>闭源厂商 BSP + GLES</b></td><td>Amlogic S905 系列</td><td nowrap>受限</td></tr>
+<tr><td align="center" nowrap>🏅 四</td><td>软件渲染 / 无加速</td><td>老旧 SoC</td><td nowrap>仅轻量</td></tr>
+</table>
 
 > **为什么押 Vulkan**：PSP/DC 的性能瓶颈往往是 **GLES 路径**而非 Mali 硬件本身。ROCKNIX 用 PanVK（`panfrost_icd`）走 Vulkan，同硬件直接上一个档位。
 
@@ -29,9 +30,10 @@
 
 ## 📦 支持机型
 
-| 机型 | 芯片 | GPU | 图形栈 | 状态 |
-|---|---|---|---|---|
-| **MD1000** | RK3566 | Mali-G52 | Panfrost + PanVK | ✅ 实机验证（ES4All / 蓝牙 / 千兆网卡）·[固件](https://github.com/w2xg2022/rocknix/releases) |
+<table width="100%">
+<tr><th>机型</th><th>芯片</th><th>GPU</th><th>图形栈</th><th>状态</th></tr>
+<tr><td nowrap><b>MD1000</b></td><td nowrap>RK3566</td><td nowrap>Mali-G52</td><td nowrap>Panfrost + PanVK</td><td>✅ 实机验证（ES4All / 蓝牙 / 千兆网卡）· <a href="https://github.com/w2xg2022/rocknix/releases">固件</a></td></tr>
+</table>
 
 > **缝合方案（三层拼接）**：① Armbian eMMC vendor U-Boot 用 `booti` 链载 ROCKNIX kernel（DRAM 已校准保开机）→ ② ROCKNIX mainline kernel + dtb → ③ ROCKNIX 用户空间（RetroArch + Vulkan + **ES4All**）。
 
@@ -41,11 +43,12 @@
 
 三条流水线，按「改了哪一层」选最快的那条：
 
-| 工作流 | 用途 | 耗时 |
-|---|---|---|
-| **Build**（`build-nightly.yml`） | 完整固件（kernel + 用户空间 + 模拟器 + ES4All） | 小时级 |
-| **Build kernel + reuse image**（`build-kernel-image.yml`） | 只编 kernel/模块 → 注入现成 image | **~22 分** |
-| **Build ES + reuse image**（`build-es-image.yml`） | 只编 ES4All → 注入现成 image | **~15 分** |
+<table width="100%">
+<tr><th>工作流</th><th>用途</th><th>耗时</th></tr>
+<tr><td nowrap><b>完整</b>（<code>build-nightly.yml</code>）</td><td>完整固件（kernel + 用户空间 + 模拟器 + ES4All）</td><td nowrap>小时级</td></tr>
+<tr><td nowrap><b>Kernel</b>（<code>build-kernel-image.yml</code>）</td><td>只编 kernel/模块 → 注入现成 image</td><td nowrap>~22 分</td></tr>
+<tr><td nowrap><b>ES</b>（<code>build-es-image.yml</code>）</td><td>只编 ES4All → 注入现成 image</td><td nowrap>~15 分</td></tr>
+</table>
 
 **加速要点**：
 
@@ -92,13 +95,14 @@ Actions → Build → Run workflow
 
 ## 🔗 相关仓库
 
-| 仓库 | 说明 |
-|---|---|
-| [w2xg2022/rocknix](https://github.com/w2xg2022/rocknix) | 本仓库：发行版构建系统（fork，分支 `next`） |
-| [w2xg2022/rocknix-kernel](https://github.com/w2xg2022/rocknix-kernel) | 独立内核源码仓（mainline + patch 转真 git commit，仿 ophub armbian-kernel） |
-| [w2xg2022/es4all](https://github.com/w2xg2022/es4all) | 自研 EmulationStation 统一分支（ROCKNIX/EmuELEC/Armbian 共用） |
-| [w2xg2022/distribution-cache](https://github.com/w2xg2022/distribution-cache) | ccache / toolchain 树 / es-sysroot / 用户空间 base（**public**） |
-| [w2xg2022/EmuELEC](https://github.com/w2xg2022/EmuELEC) | 第三志愿线：Amlogic 闭源 BSP + GLES 机型 |
+<table width="100%">
+<tr><th>仓库</th><th>说明</th></tr>
+<tr><td nowrap><a href="https://github.com/w2xg2022/rocknix">w2xg2022/rocknix</a></td><td>本仓库：发行版构建系统（fork，分支 <code>next</code>）</td></tr>
+<tr><td nowrap><a href="https://github.com/w2xg2022/rocknix-kernel">w2xg2022/rocknix-kernel</a></td><td>独立内核源码仓（mainline + patch 转真 git commit，仿 ophub armbian-kernel）</td></tr>
+<tr><td nowrap><a href="https://github.com/w2xg2022/es4all">w2xg2022/es4all</a></td><td>自研 EmulationStation 统一分支（ROCKNIX/EmuELEC/Armbian 共用）</td></tr>
+<tr><td nowrap><a href="https://github.com/w2xg2022/distribution-cache">w2xg2022/distribution-cache</a></td><td>ccache / toolchain 树 / es-sysroot / 用户空间 base（<b>public</b>）</td></tr>
+<tr><td nowrap><a href="https://github.com/w2xg2022/EmuELEC">w2xg2022/EmuELEC</a></td><td>第三志愿线：Amlogic 闭源 BSP + GLES 机型</td></tr>
+</table>
 
 ---
 
