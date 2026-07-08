@@ -150,8 +150,12 @@ jobs:
           for f in target/ROCKNIX-*-Specific.img.gz; do
             nf="${f/-Specific.img.gz/-${MODEL}.img.gz}"
             echo "brand: $f -> $nf"
-            mv "$f" "$nf"
-            rm -f "${f}.sha256"
+            # gzip stores the ORIGINAL filename in its header, so a plain rename
+            # of the .gz leaves the inner file as ...-Specific.img (visible in
+            # WinRAR / after gunzip). Recompress with `gzip -n` (no stored name)
+            # so decompressors fall back to the archive basename -> ...-<MODEL>.img.
+            gunzip -c "$f" | gzip -n > "$nf"
+            rm -f "$f" "${f}.sha256"
             ( cd target && sha256sum "$(basename "$nf")" > "$(basename "$nf").sha256" )
           done
 
