@@ -202,6 +202,53 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run retry-workflow.yml -F run_id=${{ github.run_id }}
 
+  # Fork release: the upstream release-nightly/release-official jobs are gated on
+  # github.repository_owner == 'ROCKNIX' (plus an org GitHub App + SourceForge),
+  # so on a fork the built firmware only ever lands in run Artifacts (expiring,
+  # login-gated). This job runs ONLY on forks and publishes the ROCKNIX-image*
+  # .img.gz to a GitHub Release on the fork itself, using the default token.
+  release-fork:
+    if: ${{ always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && github.repository_owner != 'ROCKNIX' && github.event_name == 'workflow_dispatch' }}
+    name: Release (fork)
+    needs: build-devices
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download image artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ROCKNIX-image*
+          merge-multiple: true
+      - name: Get date
+        run: echo "DATE=$(date +'%Y%m%d')" >> "$GITHUB_ENV"
+      - name: Prepare assets (split any >2GB for the release asset cap)
+        run: |
+          shopt -s nullglob
+          for f in ROCKNIX-*.img.gz; do
+            sz=$(stat -c%s "$f")
+            if [ "$sz" -gt 1998000000 ]; then
+              echo "splitting $f ($sz bytes) into <2GB parts"
+              split -b 1900m -d --suffix-length=2 "$f" "$f.part"
+              rm -f "$f"
+            fi
+          done
+          ls -la ROCKNIX-* || true
+      - name: Publish release on the fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="fw-${DATE}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" ROCKNIX-* --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "$TAG" ROCKNIX-* \
+              --repo "${{ github.repository }}" \
+              --title "Firmware ${DATE}" \
+              --notes "Fork build firmware (run ${{ github.run_id }}). Assets >2GB are split into .partNN; recombine with: cat FILE.part* > FILE" \
+              --prerelease
+          fi
+
   release-nightly:
      if: ${{ always() && !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && github.repository_owner == 'ROCKNIX' && needs.set-envs.outputs.NIGHTLY == 'yes' && github.event_name != 'pull_request' }}
      name: Release nightly
