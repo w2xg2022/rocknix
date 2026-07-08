@@ -129,6 +129,24 @@ jobs:
       - name: Get date
         run: echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
 
+      - name: Brand the board-Specific image with the model name
+        if: ${{ inputs.BOARD != '' }}
+        env:
+          BOARD: ${{ inputs.BOARD }}
+        run: |
+          shopt -s nullglob
+          # Single-BOARD builds: the *-Specific image already boots this board's
+          # own dtb (get_fdt), so rename it from the generic <DEVICE>.<arch>-
+          # <date>-Specific to a model-branded name (rk3566-md1000 -> MD1000).
+          MODEL=$(echo "${BOARD}" | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
+          for f in target/ROCKNIX-*-Specific.img.gz; do
+            nf="target/ROCKNIX-${MODEL}-${DATE}.img.gz"
+            echo "brand: $f -> $nf"
+            mv "$f" "$nf"
+            rm -f "${f}.sha256"
+            ( cd target && sha256sum "$(basename "$nf")" > "$(basename "$nf").sha256" )
+          done
+
       - uses: actions/upload-artifact@v7
         with:
           name: ROCKNIX-image-${{ inputs.DEVICE }}-${{ env.DATE }}
