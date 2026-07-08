@@ -135,12 +135,20 @@ jobs:
           BOARD: ${{ inputs.BOARD }}
         run: |
           shopt -s nullglob
-          # Single-BOARD builds: the *-Specific image already boots this board's
-          # own dtb (get_fdt), so rename it from the generic <DEVICE>.<arch>-
-          # <date>-Specific to a model-branded name (rk3566-md1000 -> MD1000).
+          # Only a single-BOARD build yields a truly board-specific image: get_fdt
+          # points the *-Specific image's extlinux at that one board's own dtb.
+          # With multiple boards there is still just one *-Specific image but it
+          # autodetects among the built dtbs (fdtdir), so it is NOT one model ->
+          # leave its generic name untouched.
+          if [ "$(echo ${BOARD} | wc -w)" -ne 1 ]; then
+            echo "multiple boards -> keep generic -Specific name"; exit 0
+          fi
+          # Swap only the -Specific suffix for the model, keeping the
+          # ROCKNIX-<DEVICE>.<arch>-<date>- prefix:
+          #   ...-<date>-Specific.img.gz -> ...-<date>-MD1000.img.gz
           MODEL=$(echo "${BOARD}" | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
           for f in target/ROCKNIX-*-Specific.img.gz; do
-            nf="target/ROCKNIX-${MODEL}-${DATE}.img.gz"
+            nf="${f/-Specific.img.gz/-${MODEL}.img.gz}"
             echo "brand: $f -> $nf"
             mv "$f" "$nf"
             rm -f "${f}.sha256"
