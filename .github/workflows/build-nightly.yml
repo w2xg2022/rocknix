@@ -222,6 +222,25 @@ jobs:
           merge-multiple: true
       - name: Get date
         run: echo "DATE=$(date +'%Y%m%d')" >> "$GITHUB_ENV"
+      - name: Brand the board-Specific image with the model name
+        env:
+          BOARD: ${{ inputs.BOARD }}
+        run: |
+          shopt -s nullglob
+          # When a single BOARD is built, its extlinux already points at that
+          # board's own dtb (get_fdt), so the *-Specific image IS the board image.
+          # Rename it from the generic "<DEVICE>.<arch>-<date>-Specific" to a
+          # model-branded name (e.g. rk3566-md1000 -> ROCKNIX-MD1000-<date>).
+          if [ -n "${BOARD}" ]; then
+            MODEL=$(echo "${BOARD}" | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
+            for f in ROCKNIX-*-Specific.img.gz; do
+              nf="ROCKNIX-${MODEL}-${DATE}.img.gz"
+              echo "brand: $f -> $nf"
+              mv "$f" "$nf"
+              rm -f "${f}.sha256"
+              sha256sum "$nf" | sed "s#  .*#  ${nf}#" > "${nf}.sha256"
+            done
+          fi
       - name: Prepare assets (split any >2GB for the release asset cap)
         run: |
           shopt -s nullglob
