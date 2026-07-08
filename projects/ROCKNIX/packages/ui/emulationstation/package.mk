@@ -3,7 +3,7 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="b01141a5492505449486d0d6f7f6118a4132cdf8"
+PKG_VERSION="8490271cb3cf4f954a00e46f0b3f57d54a7653e7"
 PKG_GIT_CLONE_BRANCH="main"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
@@ -114,6 +114,26 @@ EOF
   if [ ! "${VULKAN_SUPPORT}" = "yes" ]
     then
       sed -i '/vulkan/d' ${INSTALL}/usr/config/emulationstation/es_features.cfg
+  fi
+
+  # === es4all ROCKNIX 胶水（烤进镜像，来源均在 ${PKG_BUILD}/dist/rocknix）=====
+  # 开机 hook：SSH/Samba 默认开、常驻虚拟键盘、2键退出、PSP/DC 独立模拟器、
+  # RA/system 默认、手柄 autoconfig、隐藏 pico-8/music、主题就位。装到 autostart
+  # common（scripts/autostart 在 ES 启动前依序运行）。
+  mkdir -p ${INSTALL}/usr/lib/autostart/common
+  cp -f ${PKG_BUILD}/dist/rocknix/autostart/002-es4all-glue ${INSTALL}/usr/lib/autostart/common/002-es4all-glue
+  chmod 0755 ${INSTALL}/usr/lib/autostart/common/002-es4all-glue
+
+  # 胶水资产（虚拟键盘脚本、PSP controls、X360 autoconfig），hook 从 /usr/config/es4all 读
+  mkdir -p ${INSTALL}/usr/config/es4all
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/es4all-vkbd.py ${INSTALL}/usr/config/es4all/
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/controls.ini ${INSTALL}/usr/config/es4all/
+  cp -f "${PKG_BUILD}/dist/rocknix/deploy/assets/Microsoft X-Box 360 pad.cfg" ${INSTALL}/usr/config/es4all/
+
+  # es4all 主题（es-theme-alekfull-EmueELEC），首次开机 seed 进 /storage themes
+  if [ -d ${PKG_BUILD}/dist/rocknix/themes/es-theme-alekfull-EmueELEC ]; then
+    mkdir -p ${INSTALL}/usr/config/emulationstation/themes
+    cp -a ${PKG_BUILD}/dist/rocknix/themes/es-theme-alekfull-EmueELEC ${INSTALL}/usr/config/emulationstation/themes/
   fi
 }
 
