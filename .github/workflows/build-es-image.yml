@@ -144,6 +144,11 @@ jobs:
           sudo unsquashfs -d root /mnt/boot/SYSTEM
           # Overlay the freshly-built ES4All files onto the base rootfs.
           sudo cp -a "$ROOT"/. root/
+          # Also carry the rocknix-package setsettings.sh change (per-core face-button
+          # position remap). It lives outside the ES package, so L4's $ROOT doesn't
+          # include it; it's a plain script, overlay it directly.
+          SS=projects/ROCKNIX/packages/rocknix/sources/scripts/setsettings.sh
+          if [ -f "$SS" ]; then sudo install -m 0755 "$SS" root/usr/bin/setsettings.sh; echo "overlaid setsettings.sh"; else echo "::warning::setsettings.sh source not found, skipped"; fi
           sudo mksquashfs root SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
           # free space guard
           NEWSZ=$(stat -c%s SYSTEM.new); FREE=$(df --output=avail -B1 /mnt/boot | tail -1); OLDSZ=$(stat -c%s /mnt/boot/SYSTEM)
