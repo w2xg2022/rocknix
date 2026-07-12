@@ -861,6 +861,38 @@ function set_analogsupport() {
     esac
 }
 
+function set_position_remap() {
+    # es4all: 游戏内面键按物理位置对齐(南=Cross 东=Circle 西=Square 北=Triangle，印刷无关)。
+    # RetroArch 用 udev 驱动，面键编号按 evdev 语义(=物理位置)锚定，故一份 remap 通吃
+    # 任天堂/Xbox 任何布局手柄。依核心 .info 的 corename 定位 per-core remap 文件夹
+    # (即运行时 library_name)，翻 A/B(a=0,b=8)把标准 label 对齐转成位置对齐。
+    log "Setup position-based face button remap..."
+    local INFO CORENAME RMPDIR RMPFILE
+    INFO="/tmp/cores/${CORE}_libretro.info"
+    [ -f "${INFO}" ] || return 0
+    CORENAME=$(sed -n 's/^corename *= *"\([^"]*\)".*/\1/p' "${INFO}" | head -1)
+    [ -z "${CORENAME}" ] && return 0
+    # 个别核心 .info 的 corename 与运行时 library_name(=remap 文件夹名)大小写/写法不一致，
+    # 做例外修正。目前仅 applewin(.info=applewin 小写、library_name=AppleWin)；其余一致。
+    case "${CORENAME}" in
+        applewin) CORENAME="AppleWin" ;;
+    esac
+    # MAME 2003-Plus 的 remap 由 set_tatemode 独占管理，避免并发写冲突，这里跳过。
+    [ "${CORENAME}" = "MAME 2003-Plus" ] && return 0
+    RMPDIR="/storage/remappings/${CORENAME}"
+    RMPFILE="${RMPDIR}/${CORENAME}.rmp"
+    mkdir -p "${RMPDIR}"
+    # 幂等：先删掉本函数上次写入的标记块(防重复叠加)，保留该核心原有的其它 remap 行。
+    if [ -f "${RMPFILE}" ]; then
+        sed -i '/# es4all-position-align/d; /^input_player1_btn_a = "0"$/d; /^input_player1_btn_b = "8"$/d' "${RMPFILE}"
+    fi
+    {
+        echo '# es4all-position-align'
+        echo 'input_player1_btn_a = "0"'
+        echo 'input_player1_btn_b = "8"'
+    } >> "${RMPFILE}"
+}
+
 function set_tatemode() {
     log "Setup tate mode..."
     if [ "${CORE}" = "mame2003_plus" ]
@@ -1292,6 +1324,7 @@ set_saturnopts &
 set_snesopts &
 set_dreamcastopts &
 set_melondsdsopts &
+set_position_remap &
 
 ### Sed operations are expensive, so they are staged and executed as
 ### a single process when all forks complete.
