@@ -135,7 +135,12 @@ jobs:
           set -e
           ROOT='${{ steps.stage.outputs.ROOT }}'
           BASEGZ=$(ls base/*.img.gz | head -1)
-          OUT="ROCKNIX-${{ env.DEVICE }}-${{ env.BOARD }}-es4all-$(date +%Y%m%d)"
+          # Clean naming to match the historical branded convention and avoid the
+          # redundant "RK3566-rk3566" (DEVICE + BOARD both carry the SoC). Strip the
+          # SoC prefix off BOARD to get the model, uppercase it:
+          #   DEVICE=RK3566 BOARD=rk3566-md1000 -> ROCKNIX-RK3566.aarch64-<date>-MD1000-es4all
+          MODEL=$(echo "${{ env.BOARD }}" | sed 's/^[^-]*-//' | tr '[:lower:]' '[:upper:]')
+          OUT="ROCKNIX-${{ env.DEVICE }}.aarch64-$(date +%Y%m%d)-${MODEL}-es4all"
           gunzip -c "$BASEGZ" > work.img
           LOOP=$(sudo losetup -fP --show work.img)
           sudo mkdir -p /mnt/boot
