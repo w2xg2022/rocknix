@@ -140,7 +140,7 @@ jobs:
           # SoC prefix off BOARD to get the model, uppercase it:
           #   DEVICE=RK3566 BOARD=rk3566-md1000 -> ROCKNIX-RK3566.aarch64-<date>-MD1000-es4all
           MODEL=$(echo "${{ env.BOARD }}" | sed 's/^[^-]*-//' | tr '[:lower:]' '[:upper:]')
-          OUT="ROCKNIX-${{ env.DEVICE }}.aarch64-$(date +%Y%m%d)-${MODEL}-es4all"
+          OUT="ROCKNIX-${{ env.DEVICE }}.aarch64-$(date +%Y%m%d)-${MODEL}.ES4All"
           gunzip -c "$BASEGZ" > work.img
           LOOP=$(sudo losetup -fP --show work.img)
           sudo mkdir -p /mnt/boot
