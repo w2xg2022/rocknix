@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0
 # Copyright (C) 2024-present ROCKNIX (https://github.com/ROCKNIX)
 
-# 阶段1:ROCKNIX 改用 stock emulationstation-next(能在wayland/sway下正常开机);
-# ES4All 的自定义功能待逐项移植(见 ES4ALL_移植参考.md)。膠水/主题独立在 es4all-glue/。
+# es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="26ded87813e47f24a116923bdd1fc783ec796f04"
-PKG_GIT_CLONE_BRANCH="master"
+PKG_VERSION="e5ae38546af7d7059a31c41a2dc23cfd2963b19d"
+PKG_GIT_CLONE_BRANCH="main"
 PKG_LICENSE="GPL"
-PKG_SITE="https://github.com/ROCKNIX/emulationstation-next"
+PKG_SITE="https://github.com/w2xg2022/es4all"
 PKG_URL="${PKG_SITE}.git"
 PKG_DEPENDS_TARGET="boost toolchain SDL2 freetype curl freeimage bash rapidjson SDL2_mixer fping p7zip alsa vlc drm_tool pugixml"
 PKG_NEED_UNPACK="busybox"
@@ -26,7 +25,8 @@ if [ ! "${OPENGLES_SUPPORT}" = no ]; then
   PKG_CMAKE_OPTS_TARGET+=" -DGLES2=1"
 fi
 
-PKG_CMAKE_OPTS_TARGET+=" -DROCKNIX=1 \
+PKG_CMAKE_OPTS_TARGET+=" -DES4ALL_TARGET=rocknix \
+                         -DROCKNIX=1 \
                          -DDISABLE_KODI=1 \
                          -DENABLE_FILEMANAGER=0 \
                          -DCEC=0 \
@@ -116,24 +116,24 @@ EOF
       sed -i '/vulkan/d' ${INSTALL}/usr/config/emulationstation/es_features.cfg
   fi
 
-  # === es4all ROCKNIX 胶水（烤进镜像，来源均在 ${PKG_DIR}/es4all-glue）=====
+  # === es4all ROCKNIX 胶水（烤进镜像，来源均在 ${PKG_BUILD}/dist/rocknix）=====
   # 开机 hook：SSH/Samba 默认开、常驻虚拟键盘、2键退出、PSP/DC 独立模拟器、
   # RA/system 默认、手柄 autoconfig、隐藏 pico-8/music、主题就位。装到 autostart
   # common（scripts/autostart 在 ES 启动前依序运行）。
   mkdir -p ${INSTALL}/usr/lib/autostart/common
-  cp -f ${PKG_DIR}/es4all-glue/autostart/002-es4all-glue ${INSTALL}/usr/lib/autostart/common/002-es4all-glue
+  cp -f ${PKG_BUILD}/dist/rocknix/autostart/002-es4all-glue ${INSTALL}/usr/lib/autostart/common/002-es4all-glue
   chmod 0755 ${INSTALL}/usr/lib/autostart/common/002-es4all-glue
 
   # 胶水资产（虚拟键盘脚本、PSP controls、X360 autoconfig），hook 从 /usr/config/es4all 读
   mkdir -p ${INSTALL}/usr/config/es4all
-  cp -f ${PKG_DIR}/es4all-glue/deploy/assets/es4all-vkbd.py ${INSTALL}/usr/config/es4all/
-  cp -f ${PKG_DIR}/es4all-glue/deploy/assets/controls.ini ${INSTALL}/usr/config/es4all/
-  cp -f "${PKG_DIR}/es4all-glue/deploy/assets/Microsoft X-Box 360 pad.cfg" ${INSTALL}/usr/config/es4all/
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/es4all-vkbd.py ${INSTALL}/usr/config/es4all/
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/controls.ini ${INSTALL}/usr/config/es4all/
+  cp -f "${PKG_BUILD}/dist/rocknix/deploy/assets/Microsoft X-Box 360 pad.cfg" ${INSTALL}/usr/config/es4all/
 
   # es4all 主题（es-theme-alekfull-EmueELEC），首次开机 seed 进 /storage themes
-  if [ -d ${PKG_DIR}/es4all-glue/themes/es-theme-alekfull-EmueELEC ]; then
+  if [ -d ${PKG_BUILD}/dist/rocknix/themes/es-theme-alekfull-EmueELEC ]; then
     mkdir -p ${INSTALL}/usr/config/emulationstation/themes
-    cp -a ${PKG_DIR}/es4all-glue/themes/es-theme-alekfull-EmueELEC ${INSTALL}/usr/config/emulationstation/themes/
+    cp -a ${PKG_BUILD}/dist/rocknix/themes/es-theme-alekfull-EmueELEC ${INSTALL}/usr/config/emulationstation/themes/
   fi
 }
 
