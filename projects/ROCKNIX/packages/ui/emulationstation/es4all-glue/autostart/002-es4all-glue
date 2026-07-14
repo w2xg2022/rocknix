@@ -1,0 +1,90 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# es4all ROCKNIX 开机胶水（已烤进镜像，幂等，在 ES 启动前套用）
+#
+# 说明：ES4All 已作为 emulationstation 包编进镜像，故不再 bind-mount ES 本体。
+# 本 hook 负责电视盒/ES4All 的运行时胶水：SSH 默认开、虚拟键盘、2 键退出、
+# PSP/DC 独立模拟器、RetroArch 默认、手柄 autoconfig、隐藏 pico-8/music、主题就位。
+# 资产随镜像装在 /usr/config/es4all/，主题装在 /usr/config/emulationstation/themes/。
+
+GLUE=/usr/config/es4all
+RA_CFG=/storage/.config/retroarch/retroarch.cfg
+SYS_CFG=/storage/.config/system/configs/system.cfg
+PSP_CTRL=/storage/.config/ppsspp/PSP/SYSTEM/controls.ini
+ES_SETTINGS=/storage/.config/emulationstation/es_settings.cfg
+THEMES=/storage/.config/emulationstation/themes
+THEME=es-theme-alekfull-EmueELEC
+
+set_kv(){ f=$1; k=$2; v=$3; [ -f "$f" ] || return 0
+  if grep -q "^${k}=" "$f" 2>/dev/null; then sed -i "s#^${k}=.*#${k}=${v}#" "$f"
+  else echo "${k}=${v}" >> "$f"; fi; }
+set_ra(){ f=$1; k=$2; v=$3; [ -f "$f" ] || return 0
+  if grep -q "^${k} = " "$f" 2>/dev/null; then sed -i "s#^${k} = .*#${k} = \"${v}\"#" "$f"
+  else echo "${k} = \"${v}\"" >> "$f"; fi; }
+
+# 1) SSH + Samba 默认开启（ES4All 无服务开关；沿用官方 flag 文件机制）
+mkdir -p /storage/.cache/services
+# SSH：sshd.service 靠 /storage/.cache/services/sshd.conf 存在才起
+[ -f /storage/.cache/services/sshd.conf ] || : > /storage/.cache/services/sshd.conf
+systemctl --no-block start sshd 2>/dev/null
+# Samba：SAMBA_SERVER=yes 已 enable smbd/nmbd，机制是「无 samba.disabled 即启用」，确保未被禁用并拉起
+rm -f /storage/.cache/services/samba.disabled
+systemctl --no-block start samba-config nmbd smbd 2>/dev/null
+
+# 2) 常驻虚拟键盘（电视盒无板载输入时补上，让外接手柄单独可用），等注册好再放行
+if [ -f "${GLUE}/es4all-vkbd.py" ] && ! grep -q es4all-virtual-keyboard /proc/bus/input/devices 2>/dev/null; then
+  python3 "${GLUE}/es4all-vkbd.py" &
+  for i in $(seq 1 50); do
+    grep -q es4all-virtual-keyboard /proc/bus/input/devices 2>/dev/null && break
+    sleep 0.1
+  done
+fi
+
+# 3) input_sense 退出热键改 SELECT+START（2 键）；/usr 只读，故 bind-mount patch 版
+if [ ! -f /storage/es4all-input_sense ] || ! grep -q 'es4all: 2 key exit' /storage/es4all-input_sense 2>/dev/null; then
+  cp -f /usr/bin/input_sense /storage/es4all-input_sense
+  sed -i 's/if \[ "${HOTKEY_A_PRESSED}" = true \] && \[ "${HOTKEY_C_PRESSED}" = true \]; then/if [ "${HOTKEY_C_PRESSED}" = true ]; then  # es4all: 2 key exit SELECT+START/' /storage/es4all-input_sense
+  sed -i 's/if \[ "${HOTKEY_A_PRESSED}" = true \] && \[ "${HOTKEY_B_PRESSED}" = true \]; then/if [ "${HOTKEY_B_PRESSED}" = true ]; then  # es4all: 2 key exit SELECT+START/' /storage/es4all-input_sense
+  chmod 0755 /storage/es4all-input_sense
+fi
+if ! mountpoint -q /usr/bin/input_sense 2>/dev/null; then
+  mount --bind /storage/es4all-input_sense /usr/bin/input_sense
+  systemctl --no-block restart input.service 2>/dev/null
+fi
+
+# 4) RetroArch 默认：游戏内位置对齐由 ROCKNIX setsettings.sh 的 per-core remap 负责
+#    （autoconfig 保持标准 label 对齐，remap 在核心层翻 A/B，任何手柄/核心通吃）。
+#    菜单不 swap：标准 autoconfig 下 RetroPad A=南键，确定键即落在南键。
+#    / 简体中文 / 不显示载入动画
+set_ra "${RA_CFG}" menu_swap_ok_cancel_buttons false
+set_ra "${RA_CFG}" user_language 12
+set_ra "${RA_CFG}" menu_show_load_content_animation false
+
+# 5) 系统默认：关自动读/存档；PSP、Dreamcast 用独立模拟器（性能）
+set_kv "${SYS_CFG}" global.autosave 0
+set_kv "${SYS_CFG}" psp.emulator ppsspp
+set_kv "${SYS_CFG}" psp.core ppsspp-sa
+set_kv "${SYS_CFG}" dreamcast.emulator flycast
+set_kv "${SYS_CFG}" dreamcast.core flycast-sa
+
+# 6) PSP 独立模拟器手柄（□/△ 与物理位置对齐）
+[ -f "${PSP_CTRL}" ] && [ -f "${GLUE}/controls.ini" ] && cp -f "${GLUE}/controls.ini" "${PSP_CTRL}"
+
+# 7) 手柄 autoconfig 标准对齐（Microsoft X-Box 360 pad；/tmp/joypads 是持久 overlay）
+if [ -d /tmp/joypads ] && [ -f "${GLUE}/Microsoft X-Box 360 pad.cfg" ]; then
+  cp -f "${GLUE}/Microsoft X-Box 360 pad.cfg" "/tmp/joypads/Microsoft X-Box 360 pad.cfg"
+fi
+
+# 8) 幂等确保隐藏 pico-8（es_settings 已 seed pico-8;music，这里补防）
+if [ -f "${ES_SETTINGS}" ] && grep -q 'HiddenSystems' "${ES_SETTINGS}" 2>/dev/null \
+   && ! grep -q 'HiddenSystems" value="[^"]*pico-8' "${ES_SETTINGS}" 2>/dev/null; then
+  sed -i 's#\(HiddenSystems" value="\)#\1pico-8;#' "${ES_SETTINGS}"
+fi
+
+# 9) 主题就位：只读 /usr/config 里的主题补进可写的 /storage themes（首次）
+if [ -d "/usr/config/emulationstation/themes/${THEME}" ] && [ ! -e "${THEMES}/${THEME}" ]; then
+  mkdir -p "${THEMES}"
+  cp -a "/usr/config/emulationstation/themes/${THEME}" "${THEMES}/"
+fi
+
+exit 0
