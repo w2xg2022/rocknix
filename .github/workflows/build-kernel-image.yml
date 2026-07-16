@@ -18,6 +18,10 @@ on:
         description: "distribution-cache release tag holding the base userspace image"
         default: "userspace-base-RK3566"
         type: string
+      INJECT:
+        description: "also run lane C (.github/inject/patch.sh) onto SYSTEM in the same pass"
+        default: false
+        type: boolean
 
 env:
   PROJECT: ROCKNIX
@@ -161,6 +165,11 @@ jobs:
           sudo unsquashfs -d root /mnt/boot/SYSTEM
           sudo rm -rf "root/usr/lib/kernel-overlays/base/lib/modules/$KVER"
           sudo cp -a "$MODDIR" "root/usr/lib/kernel-overlays/base/lib/modules/$KVER"
+          # Optional lane C in the same pass: apply config/scattered-file patches too.
+          if [ "${{ inputs.INJECT }}" = "true" ]; then
+            echo "== INJECT=true -> running lane C patch.sh =="
+            sudo DEVICE='${{ env.DEVICE }}' bash .github/inject/patch.sh root
+          fi
           sudo mksquashfs root SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
           # free space guard
           NEWSZ=$(stat -c%s SYSTEM.new); FREE=$(df --output=avail -B1 /mnt/boot | tail -1); OLDSZ=$(stat -c%s /mnt/boot/SYSTEM)
