@@ -36,6 +36,8 @@
 </table>
 
 > **缝合方案（三层拼接）**：① Armbian eMMC vendor U-Boot 用 `booti` 链载 ROCKNIX kernel（DRAM 已校准保开机）→ ② ROCKNIX mainline kernel + dtb → ③ ROCKNIX 用户空间（RetroArch + Vulkan + **ES4All**）。
+>
+> 🔄 **双系统一键互切**（eMMC Armbian ⇄ U 盘 ROCKNIX，靠 TRIGGER 档 + `booti`，支持 curl 一键）：见 **[MD1000 双系统切换说明](docs/md1000-dual-boot.md)**。彻底告别 U 盘可用 `installtoemmc` 装进 eMMC。
 
 ---
 
