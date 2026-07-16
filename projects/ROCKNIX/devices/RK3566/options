@@ -18,6 +18,12 @@
         ;;
     esac
 
+  # es4all: RK3566 不做 32 位 —— Mali-G52 电视盒不跑 PortMaster/box86(32位x86)、
+  # 64 位 libretro 核心已覆盖全部主机。关掉 32 位可整个跳过 build-arm(~1h),
+  # 与 SM8650/SM8750 同做法(见 build-arm.yml / build-aarch64-image.yml 的
+  # DEVICE 排除)。要 32 位就改回 "yes" 并把 RK3566 从那两处 gate 移除。
+    ENABLE_32BIT="no"
+
     PARTITION_TABLE="gpt"
     HW_CPU="Rockchip RK3566"
 

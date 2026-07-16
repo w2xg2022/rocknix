@@ -45,7 +45,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      # es4all: 复用本 job 自己发布到 distribution-cache 的 toolchain-tree
+      # (toolchain + host tools + .stamps)。.stamps 在 -> 下面 build_mt toolchain
+      # 跳过重编(~40min 省下),抓不到就照旧走 ccache 编译。此前该还原逻辑只写在
+      # 方案C(build-kernel-image.yml),full build 的本 job 只当生产者、从不消费。
+      - name: Reuse prebuilt toolchain tree
+        id: tc
+        run: |
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree/toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst"
+          rm -f tc.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.part${SUF}" 2>/dev/null; then
+              cat part >> tc.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf tc.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf tc.tar.zst && rm -f tc.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "restored toolchain tree from $i part(s) -> skipping toolchain compile"
+          else
+            rm -f tc.tar.zst
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "no usable toolchain tree -> will compile from ccache"
+          fi
+
       - name: Retrieve ccache
+        if: steps.tc.outputs.reused != '1'
         run: |
           URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}-toolchain.tar"
           curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Cache archive not found, skipping."            
@@ -73,6 +101,7 @@ jobs:
             ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.threads/logs/
 
       - name: Clean ccache
+        if: steps.tc.outputs.reused != '1'
         run: |
           export CCACHE_DIR=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -s -v
@@ -82,10 +111,12 @@ jobs:
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -z
 
       - name: Tar ccache
+        if: steps.tc.outputs.reused != '1'
         run: |
-          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}-toolchain.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache  
+          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}-toolchain.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
 
       - name: Save ccache
+        if: steps.tc.outputs.reused != '1'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ccache
@@ -116,12 +147,15 @@ jobs:
       # rebuilding the toolchain (~30min saved per kernel-only iteration).
       # GitHub release assets are capped at 2GB and the tree is ~3GB, so split
       # into <2GB numbered parts (.part00, .part01, ...); Option C cats them back.
+      # es4all: 复用了现成 tree 时不必重新发布(内容没变),跳过省 ~3GB 上传。
       - name: Split toolchain tree for Option C reuse
+        if: steps.tc.outputs.reused != '1'
         run: |
           split -b 1900m -d --suffix-length=2 build.aarch64-toolchain.tar.zst \
             toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part
           ls -la toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
       - uses: softprops/action-gh-release@v3
+        if: steps.tc.outputs.reused != '1'
         with:
           tag_name: toolchain-tree
           files: toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
