@@ -86,6 +86,7 @@ jobs:
       # 故以 userland 身分(aarch64 树里所有 build_target stamp 内容的 hash)当 key。
       - name: Reuse emu-libretro tree (keyed to userland id)
         id: emutree
+        if: ${{ vars.TREE_REUSE == 'on' }}
         run: |
           BT="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
           UL_ID=$(cat $(find "${BT}/.stamps" -name 'build_target' | sort) 2>/dev/null | sha256sum | cut -c1-16)
@@ -201,6 +202,7 @@ jobs:
       # 下次仅在 userland 身分相同时复用。一律发布：核心自身 package.mk 改过时本次会重编它，
       # 树内容已变必须更新;userland 没变时内容相同、覆盖无害。
       - name: Publish emu-libretro tree (keyed to userland id)
+        if: ${{ vars.TREE_REUSE == 'on' }}
         run: |
           cat build.emu-libretro.tar.part* | zstd -T0 -3 -c > emu.tar.zst
           split -b 1900m -d --suffix-length=2 emu.tar.zst emu-libretro-${{ inputs.DEVICE }}.tar.zst.part
@@ -209,6 +211,7 @@ jobs:
           ls -la emu-libretro-${{ inputs.DEVICE }}.*
         continue-on-error: true
       - uses: softprops/action-gh-release@v3
+        if: ${{ vars.TREE_REUSE == 'on' }}
         with:
           tag_name: emu-tree
           files: |

@@ -76,6 +76,7 @@ jobs:
       # 抓不到/身分不合/损坏 -> 全量编译 fallback。结尾会把新树+身分发回 es-sysroot。
       - name: Reuse prebuilt aarch64 tree (keyed to toolchain id)
         id: tree
+        if: ${{ vars.TREE_REUSE == 'on' }}
         run: |
           BT="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
           TC_ID=$(cat $(find "${BT}/.stamps" -name 'build_*' | sort) 2>/dev/null | sha256sum | cut -c1-16)
@@ -215,6 +216,7 @@ jobs:
       # >2GB 用 split 切片(与 toolchain-tree 同)。万一残留旧切片导致 cat 出损坏档，
       # 还原端有 `tar --zstd -tf` 校验 + 全量编译 fallback，不会污染产物。
       - name: Publish aarch64 tree to es-sysroot
+        if: ${{ vars.TREE_REUSE == 'on' }}
         run: |
           zstd -T0 -3 -c build.aarch64.tar > es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst
           split -b 1900m -d --suffix-length=2 es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst \
@@ -225,6 +227,7 @@ jobs:
           ls -la es-sysroot-aarch64-${{ inputs.DEVICE }}.*
         continue-on-error: true
       - uses: softprops/action-gh-release@v3
+        if: ${{ vars.TREE_REUSE == 'on' }}
         with:
           tag_name: es-sysroot
           files: |
