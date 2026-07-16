@@ -929,6 +929,20 @@ function set_tatemode() {
                 fi
             ;;
         esac
+        # es4all: MAME 也要位置对齐 remap。set_position_remap 为避开与本函数并发写而跳过
+        # 本核心(两者都是 & 背景执行)，而上面 TATE 关闭时又会 rm 掉 .rmp —— 结果横向玩
+        # MAME 永远没有位置对齐、A/B 不翻(按印刷 B 跳跃却要按 A)。故在 TATE 处理后由本
+        # 函数统一补写，两种模式都有。TATE 档只改方向键与摇杆、无 btn_a/btn_b，不冲突。
+        local MAME2003RMP="${MAME2003REMAPDIR}/MAME 2003-Plus.rmp"
+        if [ -f "${MAME2003RMP}" ]
+        then
+            sed -i '/# es4all-position-align/d; /^input_player1_btn_a = "0"$/d; /^input_player1_btn_b = "8"$/d' "${MAME2003RMP}"
+        fi
+        {
+            echo '# es4all-position-align'
+            echo 'input_player1_btn_a = "0"'
+            echo 'input_player1_btn_b = "8"'
+        } >> "${MAME2003RMP}"
     fi
 }
 

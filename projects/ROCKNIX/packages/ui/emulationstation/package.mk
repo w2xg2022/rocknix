@@ -3,7 +3,7 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="091ae3f6e5c1f2e87d4be433b0e27e88888b8dc3"
+PKG_VERSION="ad9f1872776f52876764df344ba4db40c8130c36"
 PKG_GIT_CLONE_BRANCH="main"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
@@ -154,6 +154,12 @@ EOF
   cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/es4all-vkbd.py ${INSTALL}/usr/config/es4all/
   cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/controls.ini ${INSTALL}/usr/config/es4all/
   cp -f "${PKG_BUILD}/dist/rocknix/deploy/assets/Microsoft X-Box 360 pad.cfg" ${INSTALL}/usr/config/es4all/
+
+  # es4all: RetroArch 中文字体(含 CJK 字形)。RA 内建 xmb 字体无 CJK -> 中文显示方块(tofu);
+  # 开机胶水把 xmb_font / video_font_path 指向这里。字体源自 es4all-1key。
+  mkdir -p ${INSTALL}/usr/config/es4all/fonts
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/fonts/regular.ttf ${INSTALL}/usr/config/es4all/fonts/
+  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/fonts/bold.ttf ${INSTALL}/usr/config/es4all/fonts/
 
   # es4all 主题（es-theme-alekfull-EmueELEC），首次开机 seed 进 /storage themes
   if [ -d ${PKG_BUILD}/dist/rocknix/themes/es-theme-alekfull-EmueELEC ]; then
