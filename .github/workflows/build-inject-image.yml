@@ -1,0 +1,91 @@
+#==========================================================================
+# Lane C (inject): overlay config / scattered-file changes onto a prebuilt
+# base userspace image WITHOUT recompiling anything. Downloads the base image,
+# unsquashes SYSTEM, runs .github/inject/patch.sh against it, re-squashes and
+# repackages a flashable .img.gz (~5min). Edit .github/inject/patch.sh to say
+# what to change (system.cfg default, /usr/config files, dropping binaries).
+#
+# Lanes (see memory rocknix-build-lanes):
+#   A kernel  -> build-kernel-image.yml    B ES4All -> build-es-image.yml (L4)
+#   C inject  -> THIS                       D full   -> build-nightly.yml (refreshes base)
+#==========================================================================
+
+name: Inject config into userspace image
+
+on:
+  workflow_dispatch:
+    inputs:
+      BOARD:
+        description: "board (output image naming only)"
+        default: "rk3566-md1000"
+        type: string
+      BASE_IMAGE_TAG:
+        description: "distribution-cache release tag holding the base userspace image"
+        default: "userspace-base-RK3566"
+        type: string
+
+env:
+  PROJECT: ROCKNIX
+  DEVICE: RK3566
+  ARCH: aarch64
+  BOARD: ${{ inputs.BOARD }}
+
+jobs:
+  inject-image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
+        with:
+          skip-components: docker-engine
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      - name: Download base userspace image
+        run: |
+          mkdir -p base
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/${{ inputs.BASE_IMAGE_TAG }}/${{ inputs.BASE_IMAGE_TAG }}.img.gz"
+          echo "downloading $URL"
+          curl -L --fail --retry 3 -o "base/${{ inputs.BASE_IMAGE_TAG }}.img.gz" "$URL"
+          ls -la base/
+
+      - name: Assemble image (inject config into SYSTEM)
+        run: |
+          set -e
+          BASEGZ=$(ls base/*.img.gz | head -1)
+          MODEL=$(echo "${{ env.BOARD }}" | sed 's/^[^-]*-//' | tr '[:lower:]' '[:upper:]')
+          OUT="ROCKNIX-${{ env.DEVICE }}.aarch64-$(date +%Y%m%d)-${MODEL}.inject"
+          gunzip -c "$BASEGZ" > work.img
+          LOOP=$(sudo losetup -fP --show work.img)
+          sudo mkdir -p /mnt/boot
+          sudo mount ${LOOP}p1 /mnt/boot
+          echo "== boot partition =="; ls -la /mnt/boot
+          sudo unsquashfs -d root /mnt/boot/SYSTEM
+          # --- run the (user-editable) inject patch script against SYSTEM root ---
+          sudo DEVICE='${{ env.DEVICE }}' bash .github/inject/patch.sh root
+          sudo mksquashfs root SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
+          # free-space guard (must fit back into the boot partition)
+          NEWSZ=$(stat -c%s SYSTEM.new); FREE=$(df --output=avail -B1 /mnt/boot | tail -1); OLDSZ=$(stat -c%s /mnt/boot/SYSTEM)
+          if [ "$NEWSZ" -gt "$((FREE + OLDSZ))" ]; then echo "::error::new SYSTEM too big for boot partition"; exit 1; fi
+          sudo cp SYSTEM.new /mnt/boot/SYSTEM
+          sudo bash -c "md5sum SYSTEM.new | sed 's# .*# target/SYSTEM#' > /mnt/boot/SYSTEM.md5"
+          sync
+          sudo umount /mnt/boot
+          sudo losetup -d "$LOOP"
+          gzip -c work.img > "${OUT}.img.gz"
+          sha256sum "${OUT}.img.gz" > "${OUT}.img.gz.sha256"
+          ls -la "${OUT}.img.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inject-image-${{ env.BOARD }}
+          path: |
+            *.img.gz
+            *.img.gz.sha256
