@@ -74,6 +74,12 @@ makeinstall_target() {
   cp ${PKG_BUILD}/serial_number_check ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/serial_number_check
 
+  # es4all: bluetooth shim so ES (batocera lineage) `batocera-bluetooth <verb>`
+  # drives ROCKNIX's own rocknix-bluetooth (else the BLUETOOTH menu is hidden
+  # because ES probes for the batocera-bluetooth executable).
+  cp ${PKG_BUILD}/dist/rocknix/sources/batocera-bluetooth ${INSTALL}/usr/bin
+  chmod 0755 ${INSTALL}/usr/bin/batocera-bluetooth
+
   mkdir -p ${INSTALL}/usr/bin
   #ln -sf /storage/.config/emulationstation/resources ${INSTALL}/usr/bin/resources
   cp -rf ${PKG_BUILD}/emulationstation ${INSTALL}/usr/bin
