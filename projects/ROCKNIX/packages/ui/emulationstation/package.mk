@@ -3,7 +3,7 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="ef804b9ceed73e5649638bf9c03cc68d8ef8be4a"
+PKG_VERSION="d9f8fc3b057dec8883d8b60acb3316719924e44d"
 PKG_GIT_CLONE_BRANCH="main"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
@@ -59,6 +59,18 @@ makeinstall_target() {
   I18NPATH=$(get_install_dir glibc)/usr/share/i18n/locales/ \
     localedef --force --verbose --inputfile=en_US --charmap=UTF-8 \
     ${INSTALL}/usr/config/locale/en_US.UTF-8 || true
+
+  # es4all: also pre-generate the Chinese glibc locales. The base image seeded a
+  # BROKEN zh_CN.UTF-8 (has LC_NAME but no LC_CTYPE), which fools es_settings'
+  # "already generated" guard (it tests LC_NAME), so setlocale(LC_MESSAGES,"")
+  # fails, gettext disables all translation and the UI falls back to English even
+  # though system.language=zh_CN. Shipping complete zh_CN/zh_TW locales makes both
+  # Chinese variants work out of the box regardless of the guard.
+  for L in zh_CN zh_TW; do
+    I18NPATH=$(get_install_dir glibc)/usr/share/i18n/locales/ \
+      localedef --force --verbose --inputfile=${L} --charmap=UTF-8 \
+      ${INSTALL}/usr/config/locale/${L}.UTF-8 || true
+  done
 
   mkdir -p ${INSTALL}/usr/config/emulationstation/resources
   cp -rf ${PKG_BUILD}/resources/* ${INSTALL}/usr/config/emulationstation/resources/
