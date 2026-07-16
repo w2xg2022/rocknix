@@ -45,6 +45,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # es4all: 复用上次 build 发布的 aarch64 树(userland + .stamps)。stamps 在 ->
+      # build_distro 只重编有改动的套件、其余全跳过(与 toolchain-tree 同一招:44m->7m)。
+      # 树的格式与 es-sysroot / L4 相同(= build.aarch64.tar,不含 build/ 子目录);需要
+      # 重编的套件会自行重新解压源码到 build/。抓不到或损坏就照旧全量编译(有 fallback)。
+      # 本 job 结尾会把新树发回 es-sysroot,故每次 build 自动保鲜、L4 也一起受益。
+      - name: Reuse prebuilt aarch64 tree (es-sysroot)
+        id: tree
+        run: |
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/es-sysroot/es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst"
+          rm -f es.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.part${SUF}" 2>/dev/null; then
+              cat part >> es.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf es.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf es.tar.zst && rm -f es.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "restored aarch64 tree from $i part(s) -> unchanged packages will be skipped"
+          else
+            rm -f es.tar.zst
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "no usable aarch64 tree -> full userland build"
+          fi
+
       - name: Retrieve ccache
         run: |
           URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
@@ -164,3 +192,27 @@ jobs:
           name: aarch64 build (${{ inputs.DEVICE }})
           path: build.build.aarch64.tar
           if-no-files-found: error
+
+      # es4all: 把这次的 aarch64 树发回 distribution-cache 的 es-sysroot，供下次 build 的
+      # "Reuse prebuilt aarch64 tree" 与 L4(build-es-image) 复用 —— es-sysroot 从此每次
+      # full build 自动保鲜，不必再手动 seed(原本停在 2026-07-07 十天没动)。
+      # >2GB 用 split 切片(与 toolchain-tree 同)。万一残留旧切片导致 cat 出损坏档，
+      # 还原端有 `tar --zstd -tf` 校验 + 全量编译 fallback，不会污染产物。
+      - name: Publish aarch64 tree to es-sysroot
+        run: |
+          zstd -T0 -3 -c build.aarch64.tar > es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst
+          split -b 1900m -d --suffix-length=2 es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst \
+            es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part
+          rm -f es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst
+          ls -la es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+        continue-on-error: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: es-sysroot
+          files: es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+          make_latest: false
+          prerelease: true
+          body: prebuilt aarch64 trees (userland + .stamps) for build-aarch64 reuse and L4 (build-es-image)
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
