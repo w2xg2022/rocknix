@@ -76,6 +76,11 @@ on:
         required: false
         default: ''
         type: string
+      FORCE:
+        description: 'Force rebuild even if this exact commit already built successfully'
+        required: false
+        default: false
+        type: boolean
   workflow_call:
   pull_request:
     types: [ assigned ]
@@ -91,7 +96,31 @@ jobs:
       OFFICIAL: ${{ steps.set-release-type.outputs.OFFICIAL }}
       OWNER_LC: ${{ steps.set-envs.outputs.OWNER_OUTPUT }}
       matrix: ${{ steps.generate.outputs.matrix }}
+      should_build: ${{ steps.guard.outputs.should_build }}
     steps:
+      # es4all: skip if this exact commit already built successfully (avoids
+      # wasting a ~3.5h build on an accidental re-dispatch of the same commit).
+      # FORCE=true overrides. es4all changes bump the package.mk pin -> new SHA,
+      # so a pin bump is (correctly) treated as a change.
+      - name: Skip if commit already built
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ inputs.FORCE }}" = "true" ]; then
+            echo "FORCE=true -> build"; echo "should_build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          LAST=$(gh run list --workflow=build-nightly.yml --branch "${{ github.ref_name }}" \
+                   --status success --limit 5 --json headSha,databaseId \
+                   -q "[.[] | select(.databaseId != ${{ github.run_id }})][0].headSha" 2>/dev/null || echo "")
+          echo "current=${{ github.sha }}  last_success=$LAST"
+          if [ -n "$LAST" ] && [ "$LAST" = "${{ github.sha }}" ]; then
+            echo "::notice::commit ${{ github.sha }} already built successfully -> skipping (re-run with FORCE=true to override)"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Set lowercase owner name
         id: set-envs
         run: |
@@ -165,7 +194,7 @@ jobs:
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
   build-docker:
-    if: github.event_name != 'schedule' || (github.repository == 'ROCKNIX/distribution' && github.ref_name == 'next')
+    if: (github.event_name != 'schedule' || (github.repository == 'ROCKNIX/distribution' && github.ref_name == 'next')) && needs.set-envs.outputs.should_build == 'true'
     name: Docker
     needs: set-envs
     uses: ./.github/workflows/build-docker-image.yml
@@ -173,7 +202,7 @@ jobs:
       OWNER_LC: ${{ needs.set-envs.outputs.OWNER_LC }}
 
   build-devices:
-    if: (github.event_name != 'schedule') || (github.repository == 'ROCKNIX/distribution' && github.ref_name == 'next')
+    if: ((github.event_name != 'schedule') || (github.repository == 'ROCKNIX/distribution' && github.ref_name == 'next')) && needs.set-envs.outputs.should_build == 'true'
     name: Build Devices
     needs:
       - set-envs
