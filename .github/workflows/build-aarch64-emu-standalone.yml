@@ -98,6 +98,48 @@ jobs:
       - name: Clean up compressed aarch64 file
         run: rm build.build.aarch64.tar
 
+      # es4all: 复用上次的 emu-standalone 树(模拟器 + .stamps)，但★绑定 userland 身分★。
+      #
+      # 为什么要绑：config/functions 的 calculate_stamp 只 hash 套件「自己」的 PKG_DIR /
+      # patches / PKG_NEED_UNPACK —— 依赖被重编「不会」让依赖者的 stamp 失效。所以若无脑
+      # 复用旧 emu 树，一旦 userland(SDL2/mesa/…)改版重编，模拟器的 stamp 没变会被跳过，
+      # 留下连结旧库的陈旧 binary(= EmuELEC 註解警告的 ABI 耦合)。
+      #
+      # 故以 userland 身分(刚解压的 aarch64 树里所有 build_target stamp 内容的 hash)当 key：
+      # 身分相同 -> userland 没动 -> 安全复用，模拟器整包跳过；身分不同 -> userland 变了
+      # -> 不复用、全量重编。自动判断，不靠人记得手动清 cache。
+      - name: Reuse emu-standalone tree (keyed to userland id)
+        id: emutree
+        run: |
+          BT="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          UL_ID=$(cat $(find "${BT}/.stamps" -name 'build_target' | sort) 2>/dev/null | sha256sum | cut -c1-16)
+          echo "userland id = ${UL_ID}"
+          echo "ul_id=${UL_ID}" >> "$GITHUB_OUTPUT"
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/emu-tree/emu-standalone-${{ inputs.DEVICE }}"
+          WANT=$(curl -fsSL "${BASE}.id" 2>/dev/null || echo "")
+          if [ -z "${WANT}" ] || [ "${WANT}" != "${UL_ID}" ]; then
+            echo "no matching emu tree (cache id='${WANT}' current='${UL_ID}') -> full standalone build"
+            echo "reused=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          rm -f emu.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.tar.zst.part${SUF}" 2>/dev/null; then
+              cat part >> emu.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf emu.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf emu.tar.zst && rm -f emu.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "restored emu-standalone tree (userland id ${UL_ID}) -> unchanged emulators will be skipped"
+          else
+            rm -f emu.tar.zst
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "emu tree missing/corrupt -> full standalone build"
+          fi
+
       # es4all: RK3566 免编 rust(无消费者),故跳过 rust artifact 下载/解压。
       - name: Download aarch64-rust (${{ inputs.DEVICE }})
         if: ${{ inputs.DEVICE != 'RK3566' }}
@@ -195,3 +237,28 @@ jobs:
           name: emu-standalone (${{ inputs.DEVICE }})
           path: build.emu-standalone.tar.part*
           if-no-files-found: error
+
+      # es4all: 把这次的 emu-standalone 树发回 distribution-cache，并连同它所对应的
+      # ★userland 身分★(.id)一起发 —— 下次只有在 userland 身分相同时才会被复用。
+      # 一律发布(即使这次是复用来的)：模拟器自身 package.mk 若改过，本次会重编它、
+      # 树内容已变，必须更新；userland 没变时内容相同、覆盖也无害。
+      - name: Publish emu-standalone tree (keyed to userland id)
+        run: |
+          cat build.emu-standalone.tar.part* | zstd -T0 -3 -c > emu.tar.zst
+          split -b 1900m -d --suffix-length=2 emu.tar.zst emu-standalone-${{ inputs.DEVICE }}.tar.zst.part
+          rm -f emu.tar.zst
+          echo "${{ steps.emutree.outputs.ul_id }}" > emu-standalone-${{ inputs.DEVICE }}.id
+          ls -la emu-standalone-${{ inputs.DEVICE }}.*
+        continue-on-error: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: emu-tree
+          files: |
+            emu-standalone-${{ inputs.DEVICE }}.tar.zst.part*
+            emu-standalone-${{ inputs.DEVICE }}.id
+          make_latest: false
+          prerelease: true
+          body: prebuilt emulator trees, keyed to the userland id they were built against
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true

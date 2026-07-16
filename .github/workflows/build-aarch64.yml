@@ -45,34 +45,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # es4all: 复用上次 build 发布的 aarch64 树(userland + .stamps)。stamps 在 ->
-      # build_distro 只重编有改动的套件、其余全跳过(与 toolchain-tree 同一招:44m->7m)。
-      # 树的格式与 es-sysroot / L4 相同(= build.aarch64.tar,不含 build/ 子目录);需要
-      # 重编的套件会自行重新解压源码到 build/。抓不到或损坏就照旧全量编译(有 fallback)。
-      # 本 job 结尾会把新树发回 es-sysroot,故每次 build 自动保鲜、L4 也一起受益。
-      - name: Reuse prebuilt aarch64 tree (es-sysroot)
-        id: tree
-        run: |
-          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/es-sysroot/es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst"
-          rm -f es.tar.zst; i=0
-          while :; do
-            SUF=$(printf "%02d" "$i")
-            if curl -L --fail --retry 3 -o part "${BASE}.part${SUF}" 2>/dev/null; then
-              cat part >> es.tar.zst; rm -f part; i=$((i+1))
-            else
-              break
-            fi
-          done
-          if [ "$i" -gt 0 ] && tar --zstd -tf es.tar.zst >/dev/null 2>&1; then
-            tar --zstd -xf es.tar.zst && rm -f es.tar.zst
-            echo "reused=1" >> "$GITHUB_OUTPUT"
-            echo "restored aarch64 tree from $i part(s) -> unchanged packages will be skipped"
-          else
-            rm -f es.tar.zst
-            echo "reused=0" >> "$GITHUB_OUTPUT"
-            echo "no usable aarch64 tree -> full userland build"
-          fi
-
       - name: Retrieve ccache
         run: |
           URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
@@ -89,6 +61,50 @@ jobs:
 
       - name: Clean up compressed aarch64-toolchain file
         run: rm build.aarch64-toolchain.tar.zst
+
+      # es4all: 复用上次 build 发布的 aarch64 树(userland + .stamps)，★绑定 toolchain 身分★。
+      # stamps 在 -> build_distro 只重编有改动的套件、其余跳过(与 toolchain-tree 同一招)。
+      #
+      # 为什么绑 toolchain：config/functions 的 calculate_stamp 只 hash 套件自己的
+      # PKG_DIR/patches/PKG_NEED_UNPACK —— 依赖重编不会让依赖者的 stamp 失效。工具链是
+      # 整个 userland 的共同依赖，它一变而 userland 沿用旧树 = 全体 ABI 陈旧。故以刚解压的
+      # toolchain 树身分当 key，不合就全量重编。
+      # (注：userland 内部的套件互依仍受 LibreELEC stamp 设计限制 —— 底层库改版时上层不会
+      #  自动重编，这与本地 incremental build 同风险；真要干净就手动清 es-sysroot release。)
+      #
+      # 树格式与 L4/es-sysroot 相同(build.aarch64.tar，不含 build/)；需重编的套件会自行重解压。
+      # 抓不到/身分不合/损坏 -> 全量编译 fallback。结尾会把新树+身分发回 es-sysroot。
+      - name: Reuse prebuilt aarch64 tree (keyed to toolchain id)
+        id: tree
+        run: |
+          BT="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          TC_ID=$(cat $(find "${BT}/.stamps" -name 'build_*' | sort) 2>/dev/null | sha256sum | cut -c1-16)
+          echo "toolchain id = ${TC_ID}"
+          echo "tc_id=${TC_ID}" >> "$GITHUB_OUTPUT"
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/es-sysroot/es-sysroot-aarch64-${{ inputs.DEVICE }}"
+          WANT=$(curl -fsSL "${BASE}.id" 2>/dev/null || echo "")
+          if [ -z "${WANT}" ] || [ "${WANT}" != "${TC_ID}" ]; then
+            echo "no matching aarch64 tree (cache id='${WANT}' current='${TC_ID}') -> full userland build"
+            echo "reused=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          rm -f es.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.tar.zst.part${SUF}" 2>/dev/null; then
+              cat part >> es.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf es.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf es.tar.zst && rm -f es.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "restored aarch64 tree (toolchain id ${TC_ID}) -> unchanged packages will be skipped"
+          else
+            rm -f es.tar.zst
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "aarch64 tree missing/corrupt -> full userland build"
+          fi
 
       - name: Build
         uses: corrupt952/actions-retry-command@v1.0.7
@@ -204,12 +220,16 @@ jobs:
           split -b 1900m -d --suffix-length=2 es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst \
             es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part
           rm -f es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst
-          ls -la es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+          # 连同这棵树对应的 toolchain 身分一起发,下次只有身分相同才复用
+          echo "${{ steps.tree.outputs.tc_id }}" > es-sysroot-aarch64-${{ inputs.DEVICE }}.id
+          ls -la es-sysroot-aarch64-${{ inputs.DEVICE }}.*
         continue-on-error: true
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: es-sysroot
-          files: es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+          files: |
+            es-sysroot-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+            es-sysroot-aarch64-${{ inputs.DEVICE }}.id
           make_latest: false
           prerelease: true
           body: prebuilt aarch64 trees (userland + .stamps) for build-aarch64 reuse and L4 (build-es-image)

@@ -80,6 +80,42 @@ jobs:
       - name: Clean up compressed aarch64 file
         run: rm build.build.aarch64.tar
 
+      # es4all: 复用上次的 emu-libretro 树(核心 + .stamps)，★绑定 userland 身分★。
+      # 理由同 emu-standalone：calculate_stamp 只 hash 套件自己的 PKG_DIR/patches，
+      # 依赖重编不会让依赖者失效 —— 无脑复用会在 userland 改版后留下连结旧库的核心。
+      # 故以 userland 身分(aarch64 树里所有 build_target stamp 内容的 hash)当 key。
+      - name: Reuse emu-libretro tree (keyed to userland id)
+        id: emutree
+        run: |
+          BT="build.ROCKNIX-${{ inputs.DEVICE }}.aarch64"
+          UL_ID=$(cat $(find "${BT}/.stamps" -name 'build_target' | sort) 2>/dev/null | sha256sum | cut -c1-16)
+          echo "userland id = ${UL_ID}"
+          echo "ul_id=${UL_ID}" >> "$GITHUB_OUTPUT"
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/emu-tree/emu-libretro-${{ inputs.DEVICE }}"
+          WANT=$(curl -fsSL "${BASE}.id" 2>/dev/null || echo "")
+          if [ -z "${WANT}" ] || [ "${WANT}" != "${UL_ID}" ]; then
+            echo "no matching emu tree (cache id='${WANT}' current='${UL_ID}') -> full libretro build"
+            echo "reused=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          rm -f emu.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${BASE}.tar.zst.part${SUF}" 2>/dev/null; then
+              cat part >> emu.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -gt 0 ] && tar --zstd -tf emu.tar.zst >/dev/null 2>&1; then
+            tar --zstd -xf emu.tar.zst && rm -f emu.tar.zst
+            echo "reused=1" >> "$GITHUB_OUTPUT"
+            echo "restored emu-libretro tree (userland id ${UL_ID}) -> unchanged cores will be skipped"
+          else
+            rm -f emu.tar.zst
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "emu tree missing/corrupt -> full libretro build"
+          fi
+
       - name: Download qt6 (${{ inputs.DEVICE }})
         if: ${{ inputs.DEVICE == 'RK3399' || inputs.DEVICE == 'RK3576' || inputs.DEVICE == 'RK3588' || inputs.DEVICE == 'S922X' || inputs.DEVICE == 'SM8250' || inputs.DEVICE == 'SM8550' }}
         uses: actions/download-artifact@v8
@@ -160,3 +196,27 @@ jobs:
           name: emu-libretro (${{ inputs.DEVICE }})
           path: build.emu-libretro.tar.part*
           if-no-files-found: error
+
+      # es4all: 把这次的 emu-libretro 树连同其 ★userland 身分★(.id)发回 distribution-cache，
+      # 下次仅在 userland 身分相同时复用。一律发布：核心自身 package.mk 改过时本次会重编它，
+      # 树内容已变必须更新;userland 没变时内容相同、覆盖无害。
+      - name: Publish emu-libretro tree (keyed to userland id)
+        run: |
+          cat build.emu-libretro.tar.part* | zstd -T0 -3 -c > emu.tar.zst
+          split -b 1900m -d --suffix-length=2 emu.tar.zst emu-libretro-${{ inputs.DEVICE }}.tar.zst.part
+          rm -f emu.tar.zst
+          echo "${{ steps.emutree.outputs.ul_id }}" > emu-libretro-${{ inputs.DEVICE }}.id
+          ls -la emu-libretro-${{ inputs.DEVICE }}.*
+        continue-on-error: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: emu-tree
+          files: |
+            emu-libretro-${{ inputs.DEVICE }}.tar.zst.part*
+            emu-libretro-${{ inputs.DEVICE }}.id
+          make_latest: false
+          prerelease: true
+          body: prebuilt emulator trees, keyed to the userland id they were built against
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
