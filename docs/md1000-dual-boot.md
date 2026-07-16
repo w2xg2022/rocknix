@@ -13,7 +13,7 @@ eMMC 的 `/boot/boot.cmd`（u-boot 脚本）开机时先检查 eMMC boot 分区�
 
 ## 一键切换（curl 下载即执行）
 
-> 两个方向的脚本在 [`docs/md1000-dualboot/`](md1000-dualboot/)。下面的一键命令从 GitHub raw 直接拉取执行。
+> 两个方向的脚本在 [`docs/md1000-dualboot/`](md1000-dualboot/)。
 
 ### ▶ Armbian → U 盘 ROCKNIX
 
@@ -25,7 +25,7 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 
 > 没 `curl` 就用 `wget`：`wget -qO- <同一网址> | bash`
 
-脚本会确认 `/boot/rocknix/{Image,rk3566-md1000.dtb}` 在、`touch /boot/rocknix/TRIGGER`、然后 `reboot`。
+**首次运行会自动完成一次性安装**——检测到 `/boot/rocknix/` 缺内核或 `boot.cmd` 没链载块时，脚本会：① 从 U 盘把 `KERNEL` + `rk3566-md1000.dtb` 铺到 eMMC `/boot/rocknix/`；② 往 `/boot/boot.cmd` 插链载块、重编 `boot.scr`（自动备份 `*.armbian-orig`）。装好后再 `touch TRIGGER` + `reboot`。之后每次跑就是纯切换。
 
 ### ◀ U 盘 ROCKNIX → eMMC Armbian
 
@@ -47,24 +47,22 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 | [`switch-to-rocknix.sh`](md1000-dualboot/switch-to-rocknix.sh) | **Armbian** | `/usr/local/sbin/`（Armbian rootfs 可写） | `switch-to-rocknix.sh` |
 | [`switch-to-armbian.sh`](md1000-dualboot/switch-to-armbian.sh) | **ROCKNIX** | `/storage/`（`/usr` 只读，必须放这） | `sh /storage/switch-to-armbian.sh` |
 
-## 一次性安装（把套件铺好）
+## 首次安装做了什么（原理，脚本已自动完成）
 
-1. U 盘 `dd` 写入 ROCKNIX 完整映像（含分区表）。
-2. 把 U 盘 ROCKNIX 的 `KERNEL` + `device_trees/rk3566-md1000.dtb` 复制到 eMMC Armbian 的
+`switch-to-rocknix.sh` 首次运行时自动做以下几步，一般无需手动：
+
+1. 从 U 盘 ROCKNIX 分区把 `KERNEL` + `device_trees/rk3566-md1000.dtb` 复制到 eMMC 的
    `/boot/rocknix/Image` 与 `/boot/rocknix/rk3566-md1000.dtb`。
    （u-boot 读不到 USB，内核/dtb 必须放 eMMC；U 盘只当 rootfs，ROCKNIX 内核起来后用 Linux 完整 USB3 驱动挂 SYSTEM）
-3. 备份 `cp /boot/boot.cmd /boot/boot.cmd.armbian-orig`、`cp /boot/boot.scr /boot/boot.scr.armbian-orig`。
-4. 把 [`boot-rocknix-block.txt`](md1000-dualboot/boot-rocknix-block.txt) 内容插到 `/boot/boot.cmd` 的
-   `setenv load_addr` 那行**之前**，重编：
-   `mkimage -C none -A arm -T script -n 'flatmax load script' -d /boot/boot.cmd /boot/boot.scr`。
-5. 默认无 TRIGGER = 开 Armbian（安全）。
+2. 备份 `boot.cmd` / `boot.scr` 为 `*.armbian-orig`，把 [`boot-rocknix-block.txt`](md1000-dualboot/boot-rocknix-block.txt)
+   插到 `/boot/boot.cmd` 的 `setenv load_addr` 那行**之前**，用
+   `mkimage -C none -A arm -T script -d /boot/boot.cmd /boot/boot.scr` 重编。
+   （需要 `mkimage`；Armbian 上 `apt-get install -y u-boot-tools`）
 
-> **每换新 ROCKNIX 映像**后，记得把 U 盘的 `KERNEL` 重新复制到 eMMC `/boot/rocknix/Image`，保持 kernel 与 U 盘 SYSTEM 配对。
+> **每换新 ROCKNIX 映像**后，把 U 盘的 `KERNEL` 重新铺到 eMMC `/boot/rocknix/Image`（保持 kernel 与 U 盘 SYSTEM 配对）。再跑一次 `switch-to-rocknix.sh` 即可（它会覆盖旧的）。
 
 ## 保底 / 救援
 
 - 没插 U 盘 → ROCKNIX booti 失败 → **自动落回 Armbian**，绝不变砖。
 - 彻底救援：MASKROM 重刷 Armbian（bootloader / 分区表 / 保留区全程没动，一律可救）。
 - 想彻底告别 U 盘：用 `installtoemmc` 把 ROCKNIX 装进 eMMC 变**单系统**（会抹掉 Armbian rootfs，保留 u-boot + BOOT 作 chainload 宿主与 MASKROM 救援）。
-
-> 终局出货形态 = RKDevTool 直刷 ROCKNIX 到 eMMC 冷启动，不需要这套；本套件用于**开发 / 双系统**场景。
