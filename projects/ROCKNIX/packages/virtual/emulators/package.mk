@@ -49,6 +49,10 @@ case "${DEVICE}" in
     [ "${ENABLE_32BIT}" == "true" ] && EMUS_32BIT="box86 desmume-lr gpsp-lr pcsx_rearmed-lr"
     PKG_DEPENDS_TARGET+=" common-shaders glsl-shaders"
     PKG_EMUS+=" drastic-sa mednafen"
+    # es4all: RK3566 唯一的 rust 消费者是 touchhle-sa(iOS,base 里带的),去掉它 ->
+    # 整个 rust 工具链免编(见 build-device.yml 的 rust job DEVICE!=RK3566 gate)。
+    # librashader 只被 ares-sa 用、RetroArch 不依赖它,RK3566 都不涉及。
+    PKG_EMUS="${PKG_EMUS/ touchhle-sa/}"
     LIBRETRO_CORES+=" dolphin-lr"
     ;;
   RK3576)

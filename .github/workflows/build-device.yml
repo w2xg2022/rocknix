@@ -50,6 +50,10 @@ jobs:
 
   build-aarch64-rust:
     needs: build-aarch64-toolchain
+    # es4all: RK3566 唯一的 rust 消费者 touchhle-sa 已从 virtual/emulators 移除,
+    # 故整个 rust 工具链免编。emu-standalone 用 always() 容忍此 skip,且其 rust
+    # 下载步骤也已排除 RK3566。
+    if: ${{ inputs.DEVICE != 'RK3566' }}
     uses: ./.github/workflows/build-aarch64-rust.yml
     secrets: inherit
     with:

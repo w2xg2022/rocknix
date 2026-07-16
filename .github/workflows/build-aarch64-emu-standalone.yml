@@ -98,16 +98,20 @@ jobs:
       - name: Clean up compressed aarch64 file
         run: rm build.build.aarch64.tar
 
+      # es4all: RK3566 免编 rust(无消费者),故跳过 rust artifact 下载/解压。
       - name: Download aarch64-rust (${{ inputs.DEVICE }})
+        if: ${{ inputs.DEVICE != 'RK3566' }}
         uses: actions/download-artifact@v8
         with:
           name: aarch64-rust (${{ inputs.DEVICE }})
 
       - name: Extract artifact aarch64-rust
+        if: ${{ inputs.DEVICE != 'RK3566' }}
         run: |
           tar --zstd -xf build.aarch64-rust.tar.zst
 
       - name: Clean up compressed aarch64-rust file
+        if: ${{ inputs.DEVICE != 'RK3566' }}
         run: rm build.aarch64-rust.tar.zst
 
       - name: Download qt6 (${{ inputs.DEVICE }})
