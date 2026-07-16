@@ -74,6 +74,10 @@ jobs:
 
   build-aarch64-qt6:
     needs: build-aarch64
+    # es4all: RK3566 (Mali-G52) 上所有 qt6 消费者(PS2/PSV/3DS/GC-Wii 独立模拟器)
+    # 都跑不动、已从 virtual/emulators 移除,故整个 qt6 免编。下游 emu-* job 用
+    # always() 容忍此 skip;emu-libretro/standalone 里 qt6 下载也已排除 RK3566。
+    if: ${{ inputs.DEVICE != 'RK3566' }}
     uses: ./.github/workflows/build-aarch64-qt6.yml
     secrets: inherit
     with:

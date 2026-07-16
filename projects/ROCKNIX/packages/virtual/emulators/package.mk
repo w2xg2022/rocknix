@@ -41,7 +41,17 @@ case "${DEVICE}" in
     PKG_EMUS+=" aethersx2-sa dolphin-sa drastic-sa mednafen melonds-sa nanoboyadvance-sa"
     LIBRETRO_CORES+=" beetle-psx-lr bsnes-lr bsnes-hd-lr dolphin-lr"
     ;;
-  RK3566|RK3576)
+  RK3566)
+    # es4all: Mali-G52 跑不动 PS2(aethersx2/pcsx2)/PSV(vita3k)/3DS(azahar)/
+    # GC-Wii(dolphin)/NDS-GUI(melonds) 那串 qt6 重模拟器,全部去掉 —— 连带整个
+    # qt6 免编(见 build-device.yml 的 qt6 job DEVICE!=RK3566 gate),大幅缩短云
+    # 编译并缩小镜像。NDS 由 drastic-sa 覆盖。需要这些的是 RK3576/RK3588 等高阶。
+    [ "${ENABLE_32BIT}" == "true" ] && EMUS_32BIT="box86 desmume-lr gpsp-lr pcsx_rearmed-lr"
+    PKG_DEPENDS_TARGET+=" common-shaders glsl-shaders"
+    PKG_EMUS+=" drastic-sa mednafen"
+    LIBRETRO_CORES+=" dolphin-lr"
+    ;;
+  RK3576)
     [ "${ENABLE_32BIT}" == "true" ] && EMUS_32BIT="box86 desmume-lr gpsp-lr pcsx_rearmed-lr"
     PKG_DEPENDS_TARGET+=" common-shaders glsl-shaders"
     PKG_EMUS+=" aethersx2-sa azahar-sa dolphin-sa drastic-sa mednafen melonds-sa vita3k-sa pcsx2-sa"
