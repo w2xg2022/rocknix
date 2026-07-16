@@ -3,7 +3,7 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="c78e405d88257ef3b49f236c02c4f713a827104b"
+PKG_VERSION="091ae3f6e5c1f2e87d4be433b0e27e88888b8dc3"
 PKG_GIT_CLONE_BRANCH="main"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
@@ -92,11 +92,12 @@ makeinstall_target() {
   cp ${PKG_BUILD}/dist/rocknix/sources/batocera-bluetooth ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/batocera-bluetooth
 
-  # es4all: MD1000 (RK3566) 内置 eMMC 安装器 —— 把 U 盘启动的 ROCKNIX 装进 eMMC
-  # (删 Armbian rootfs、ROCKNIX 2GiB + STORAGE 其余、只搬 OS 不搬游戏、保留
-  # u-boot/BOOT 作 chainload 宿主与 MASKROM 救援基础)。
-  cp ${PKG_BUILD}/dist/rocknix/sources/installtoemmc-md1000 ${INSTALL}/usr/bin
-  chmod 0755 ${INSTALL}/usr/bin/installtoemmc-md1000
+  # es4all: 参数化 eMMC 安装器(一支 + 内置 board 表,仿 EmuELEC installtoemmc.sh)。
+  # 把 U 盘启动的 ROCKNIX 装进内部 eMMC:删 Armbian rootfs、ROCKNIX + STORAGE、
+  # 只搬 OS 不搬游戏、保留 u-boot/BOOT 作 chainload 宿主与 MASKROM 救援基础。
+  # 用法: installtoemmc list|auto|<board> [--yes]。加机型只加一条 board_config case。
+  cp ${PKG_BUILD}/dist/rocknix/sources/installtoemmc ${INSTALL}/usr/bin
+  chmod 0755 ${INSTALL}/usr/bin/installtoemmc
 
   mkdir -p ${INSTALL}/usr/bin
   #ln -sf /storage/.config/emulationstation/resources ${INSTALL}/usr/bin/resources
