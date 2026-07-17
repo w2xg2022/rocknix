@@ -43,11 +43,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Retrieve ccache
-        run: |
-          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}-emu-libretro.tar"
-          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Cache archive not found, skipping."  
-
       - name: Download aarch64 (${{ inputs.DEVICE }})
         uses: actions/download-artifact@v8
         with:
@@ -99,6 +94,85 @@ jobs:
         if: ${{ inputs.DEVICE == 'RK3399' || inputs.DEVICE == 'RK3576' || inputs.DEVICE == 'RK3588' || inputs.DEVICE == 'S922X' || inputs.DEVICE == 'SM8250' || inputs.DEVICE == 'SM8550' }}
         run: rm build.qt6.tar.zst
 
+      # === es4all: emulator slice reuse =========================================
+      # The emulators are rebuilt from scratch on every run (~50-60m) even though
+      # only ~3 of our last 40 commits touched them. Cache their build outputs and
+      # restore them when nothing they depend on has changed.
+      #
+      # Correctness rests on three facts, each verified against the build system:
+      #   1. build-aarch64 sets EMULATION_DEVICE=no, and virtual/image/package.mk
+      #      only pulls in "emulators" when it is yes -> the userland tree we just
+      #      extracted contains NO emulator packages at all.
+      #   2. .stamps/<pkg> is keyed by package NAME only (no version), so the set
+      #      difference below is exactly the emulator packages. install_pkg dirs
+      #      carry -<version>, which is why the difference is taken over .stamps.
+      #   3. scripts/build re-derives PKG_DEEPHASH from each package's own files
+      #      and rebuilds on mismatch, so a restored stamp still rebuilds that
+      #      package if its package.mk changed. What the stamp does NOT cover is
+      #      build config and dependency changes -- that is what the key handles.
+      - name: Snapshot the userland package set
+        run: |
+          BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          ls "${BT}/.stamps" 2>/dev/null | LC_ALL=C sort > /tmp/ul-stamps.txt || : > /tmp/ul-stamps.txt
+          echo "userland packages in tree: $(wc -l < /tmp/ul-stamps.txt)"
+
+      - name: Compute emulator cache key
+        id: key
+        run: |
+          BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          # UL_ID = what the emulators actually compile and link against.
+          # emulationstation and rocknix are excluded because nothing depends on
+          # them (verified: no PKG_DEPENDS_TARGET in the tree references either --
+          # the rocknix-* hits are separate packages). They are also the two we
+          # edit most, so excluding them is what makes this cache hit at all.
+          # Anything else changing (an SDL2 bump from an upstream sync, say)
+          # changes the key and correctly forces a full emulator rebuild.
+          UL_ID=$(for s in "${BT}"/.stamps/*/build_target; do
+                    [ -f "$s" ] || continue
+                    p=$(basename "$(dirname "$s")")
+                    case "$p" in emulationstation|rocknix) continue ;; esac
+                    printf '%s %s\n' "$p" "$(sed -n 's/^STAMP_PKG_DEEPHASH=//p' "$s")"
+                  done | LC_ALL=C sort | sha256sum | cut -c1-16)
+          EMU_FP=$( { cat projects/${{ inputs.PROJECT }}/packages/virtual/emulators/package.mk \
+                          projects/${{ inputs.PROJECT }}/options \
+                          projects/${{ inputs.PROJECT }}/devices/${{ inputs.DEVICE }}/options 2>/dev/null
+                      echo "TT=${TARGET_TYPE} E32=${ENABLE_32BIT} DEV=${{ inputs.DEVICE }} ARCH=${ARCH} BUST=${{ vars.CACHE_BUST }}"
+                    } | sha256sum | cut -c1-16)
+          echo "KEY=${UL_ID}-${EMU_FP}" >> "$GITHUB_OUTPUT"
+          echo "emu cache key: ${UL_ID}-${EMU_FP}  (userland=${UL_ID} config=${EMU_FP})"
+
+      - name: Restore emulator slice
+        id: slice
+        run: |
+          BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/emu-slice"
+          NAME="emu-slice-libretro-${{ inputs.DEVICE }}-${{ steps.key.outputs.KEY }}.tar"
+          found=0
+          for suffix in $(printf "%s\n" {a..z}{a..z}); do
+            curl -L --fail --silent --show-error -o "slice.part-${suffix}" "${BASE}/${NAME}.part-${suffix}" || break
+            found=1
+          done
+          if [ "$found" -eq 0 ]; then
+            rm -f slice.part-*
+            echo "::notice::no emulator slice for this key -> building from source"
+            exit 0
+          fi
+          cat slice.part-* > slice.tar && rm -f slice.part-*
+          # Validate before unpacking: a truncated/half-published slice must fail
+          # here rather than land a half-populated tree on the image job.
+          tar -tf slice.tar >/dev/null || { echo "::warning::slice corrupt -> building from source"; rm -f slice.tar; exit 0; }
+          tar -xf slice.tar && rm -f slice.tar
+          echo "reused=1" >> "$GITHUB_OUTPUT"
+          echo "restored emulator packages:"
+          comm -13 /tmp/ul-stamps.txt <(ls "${BT}/.stamps" | LC_ALL=C sort) | tr '\n' ' '; echo
+        continue-on-error: true
+
+      - name: Retrieve ccache
+        if: steps.slice.outputs.reused != '1'
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}-emu-libretro.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Cache archive not found, skipping."
+
       - name: Build
         uses: corrupt952/actions-retry-command@v1.0.7
         with:
@@ -121,7 +195,54 @@ jobs:
             output.log
             ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.threads/logs/
 
+      # Publish the slice for the next run. Only the emulator packages go in:
+      # they are exactly the ones whose stamps were not in the userland tree we
+      # started from. Keeping the userland out is what makes restoring the slice
+      # unable to clobber a freshly built userland package on a later run.
+      - name: Publish emulator slice
+        if: steps.slice.outputs.reused != '1'
+        run: |
+          BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          comm -13 /tmp/ul-stamps.txt <(ls "${BT}/.stamps" | LC_ALL=C sort) > /tmp/emu-pkgs.txt
+          if [ ! -s /tmp/emu-pkgs.txt ]; then
+            echo "::warning::no emulator packages appeared -> nothing to publish"; exit 0
+          fi
+          echo "publishing $(wc -l < /tmp/emu-pkgs.txt) emulator packages"
+          : > /tmp/slice-files.txt
+          while read -r p; do
+            echo "${BT}/.stamps/${p}" >> /tmp/slice-files.txt
+            for d in "${BT}"/install_pkg/"${p}"-*; do
+              # `|| continue`, not `&& echo`: with the default `bash -e`, an
+              # unmatched glob would make the AND-list the loop's failing last
+              # command and abort the step.
+              [ -e "$d" ] || continue
+              echo "$d" >> /tmp/slice-files.txt
+            done
+          done < /tmp/emu-pkgs.txt
+          sudo tar -cf - -T /tmp/slice-files.txt \
+            | split -b 1900m - "emu-slice-libretro-${{ inputs.DEVICE }}-${{ steps.key.outputs.KEY }}.tar.part-"
+          ls -la emu-slice-*.part-* || true
+        continue-on-error: true
+
+      - name: Save emulator slice
+        if: steps.slice.outputs.reused != '1'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: emu-slice
+          files: "emu-slice-libretro-${{ inputs.DEVICE }}-${{ steps.key.outputs.KEY }}.tar.part-*"
+          make_latest: false
+          prerelease: true
+          body: emulator build slices, keyed by userland+config fingerprint
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
+
+      - name: Clean up slice parts
+        if: always()
+        run: rm -f emu-slice-*.tar.part-*
+
       - name: Clean ccache
+        if: steps.slice.outputs.reused != '1'
         run: |
           export CCACHE_DIR=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -s -v
@@ -131,10 +252,12 @@ jobs:
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -z
 
       - name: Tar ccache
+        if: steps.slice.outputs.reused != '1'
         run: |
-          tar -cf ccache-aarch64-${{ inputs.DEVICE }}-emu-libretro.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache 
+          tar -cf ccache-aarch64-${{ inputs.DEVICE }}-emu-libretro.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
 
       - name: Save ccache
+        if: steps.slice.outputs.reused != '1'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ccache
