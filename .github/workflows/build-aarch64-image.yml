@@ -168,24 +168,24 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
-      # es4all: 把这次的成品镜像发回 distribution-cache 的 userspace-base-<DEVICE>，作为
+      # es4all: 把这次的成品镜像发回 distribution-cache 的 fastlane-base-<DEVICE>，作为
       # A(kernel)/B(ES4All-L4)/C(inject) 三条快车道注入用的底 —— 从此每次 full build 自动
       # 保鲜，不必再手动 seed。此前它落后一个 build，B/C 会把新东西疊在缺修正的旧底上。
       # 取机型专属镜像(排除 -Generic)；~1.1GB < 2GB 单档即可，无需切片。
-      - name: Stage image as userspace-base (for A/B/C lanes)
+      - name: Stage image as fastlane-base (for A/B/C lanes)
         run: |
           BASE_IMG=$(ls target/ROCKNIX-*.img.gz 2>/dev/null | grep -v -- '-Generic' | head -1)
           if [ -z "${BASE_IMG}" ]; then
-            echo "::warning::no device-specific image found -> skip userspace-base publish"; exit 0
+            echo "::warning::no device-specific image found -> skip fastlane-base publish"; exit 0
           fi
-          echo "publishing ${BASE_IMG} as userspace-base-${{ inputs.DEVICE }}.img.gz"
-          cp "${BASE_IMG}" "userspace-base-${{ inputs.DEVICE }}.img.gz"
-          ls -la "userspace-base-${{ inputs.DEVICE }}.img.gz"
+          echo "publishing ${BASE_IMG} as fastlane-base-${{ inputs.DEVICE }}.img.gz"
+          cp "${BASE_IMG}" "fastlane-base-${{ inputs.DEVICE }}.img.gz"
+          ls -la "fastlane-base-${{ inputs.DEVICE }}.img.gz"
         continue-on-error: true
       - uses: softprops/action-gh-release@v3
         with:
-          tag_name: userspace-base-${{ inputs.DEVICE }}
-          files: userspace-base-${{ inputs.DEVICE }}.img.gz
+          tag_name: fastlane-base-${{ inputs.DEVICE }}
+          files: fastlane-base-${{ inputs.DEVICE }}.img.gz
           make_latest: false
           prerelease: true
           body: userspace base image for the A/B/C fast lanes (auto-refreshed by every full build)

@@ -1,9 +1,9 @@
 #==========================================================================
 # L4: build ONLY the emulationstation (ES4All) package + inject it into a
-# prebuilt userspace image. Reuses a full build sysroot snapshot (es-sysroot)
+# prebuilt userspace image. Reuses a full build sysroot snapshot (userland-tree)
 # so ES's heavy deps (vlc/boost/SDL2/...) are already built and only ES itself
 # recompiles (~minutes). Produces a flashable .img.gz without the ~15h full
-# pipeline. Use this for ES4All iteration; refresh the base + es-sysroot by
+# pipeline. Use this for ES4All iteration; refresh the base + userland-tree by
 # running the full Build when the userspace or ES deps actually change.
 #==========================================================================
 
@@ -18,7 +18,7 @@ on:
         type: string
       BASE_IMAGE_TAG:
         description: "distribution-cache release tag holding the base userspace image"
-        default: "userspace-base-RK3566"
+        default: "fastlane-base-RK3566"
         type: string
       INJECT:
         description: "also run lane C (.github/inject/patch.sh) onto SYSTEM in the same pass"
@@ -64,10 +64,10 @@ jobs:
       # .stamps, minus the per-package build/ dir) captured from a full build.
       # With deps stamped, `scripts/build emulationstation:target` recompiles
       # only ES. Published as <2GB numbered parts (.part00, .part01, ...).
-      - name: Retrieve es-sysroot snapshot
+      - name: Retrieve userland-tree snapshot
         id: sr
         run: |
-          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/es-sysroot/es-sysroot-aarch64-${{ env.DEVICE }}.tar.zst"
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/userland-tree/userland-tree-aarch64-${{ env.DEVICE }}.tar.zst"
           rm -f sr.tar.zst; i=0
           while :; do
             SUF=$(printf "%02d" "$i")
@@ -79,9 +79,9 @@ jobs:
           done
           if [ "$i" -gt 0 ] && tar --zstd -tf sr.tar.zst >/dev/null 2>&1; then
             tar --zstd -xf sr.tar.zst && rm -f sr.tar.zst
-            echo "restored es-sysroot from $i part(s)"
+            echo "restored userland-tree from $i part(s)"
           else
-            echo "::error::es-sysroot snapshot not found or corrupt. Seed it from a full build's 'aarch64 (${{ env.DEVICE }})' artifact first."
+            echo "::error::userland-tree snapshot not found or corrupt. Seed it from a full build's 'aarch64 (${{ env.DEVICE }})' artifact first."
             exit 1
           fi
 

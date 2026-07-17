@@ -21,7 +21,7 @@ on:
         type: string
       BASE_IMAGE_TAG:
         description: "distribution-cache release tag holding the base userspace image"
-        default: "userspace-base-RK3566"
+        default: "fastlane-base-RK3566"
         type: string
 
 env:
