@@ -164,3 +164,59 @@ jobs:
           name: aarch64 build (${{ inputs.DEVICE }})
           path: build.build.aarch64.tar
           if-no-files-found: error
+
+      # es4all: publish this tree as userland-tree, which the B lane
+      # (build-es-image) restores so it can recompile ES alone instead of
+      # running this 80m job. Nothing published it before -- it had to be
+      # hand-seeded -- so it sat 10 days stale while the B lane quietly built
+      # ES against an old sysroot. This is what keeps it fresh.
+      #
+      # build.aarch64.tar is already exactly the right content: the Compress
+      # step above pulled build/ into its own tar first (--remove-files),
+      # leaving toolchain + populated sysroot + .stamps, which is what the B
+      # lane's restore expects.
+      - name: Stage tree as userland-tree (for the B lane)
+        id: ult
+        run: |
+          zstd -T0 -12 -f build.aarch64.tar -o ult.tar.zst
+          split -b 1900m -d --suffix-length=2 ult.tar.zst \
+            "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part"
+          rm -f ult.tar.zst
+          ls -la userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+        continue-on-error: true
+
+      # The B lane reads parts by walking .part00, .part01, ... until one 404s,
+      # so a leftover part from a larger previous snapshot would be concatenated
+      # onto a smaller new one and silently corrupt it. Drop only the parts this
+      # upload will not replace -- the ones it will replace are left alone, so a
+      # failed upload cannot leave the cache emptied.
+      - name: Drop stale userland-tree parts
+        if: steps.ult.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          CACHE: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        run: |
+          NEW=$(ls userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* 2>/dev/null | xargs -n1 basename)
+          echo "new parts:"; echo "${NEW}"
+          gh release view userland-tree -R "${CACHE}" --json assets -q '.assets[].name' 2>/dev/null \
+            | grep "^userland-tree-aarch64-${{ inputs.DEVICE }}\.tar\.zst\.part" \
+            | while read -r a; do
+                if ! echo "${NEW}" | grep -qx "$a"; then
+                  echo "dropping stale ${a}"
+                  gh release delete-asset userland-tree "$a" -R "${CACHE}" -y || true
+                fi
+              done
+        continue-on-error: true
+
+      - name: Save userland-tree
+        if: steps.ult.outcome == 'success'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: userland-tree
+          files: "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*"
+          make_latest: false
+          prerelease: true
+          body: userland build tree snapshot (toolchain + sysroot + .stamps, minus build/), consumed by the B lane
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
