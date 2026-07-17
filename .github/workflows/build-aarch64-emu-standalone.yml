@@ -12,6 +12,10 @@ on:
       OWNER_LC:
         required: true
         type: string
+      BOARD:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-aarch64-emu-standalone:
@@ -23,6 +27,10 @@ jobs:
       JAVA_HOME: /usr
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
+      # Same as emu-libretro: no dtb is built here, but `linux` is in the closure
+      # and its PKG_STAMP carries the dtb list, so an unset BOARD makes the stamp
+      # disagree with build-aarch64's and recompiles the kernel for nothing.
+      BOARD: ${{ inputs.BOARD }}
       ARCH: aarch64
       CACHE_KEY: ccache-aarch64-${{ inputs.DEVICE }}-emu-standalone-${{ github.sha }}
       DISABLE_COLORS: yes

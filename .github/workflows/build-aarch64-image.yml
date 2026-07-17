@@ -54,6 +54,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      # es4all: fastlane-base is a whole finished firmware for one model, so it
+      # has to be named per board. It carries no fingerprint of its own -- the
+      # A/B/C lanes just fetch it by tag and inject into it -- so a second RK3566
+      # board would quietly overwrite the first one's, and lane B would then lay
+      # a fresh ES onto some *other* model's firmware and ship it. That failure
+      # is invisible until the thing is flashed, which is why the board goes in
+      # the name now rather than when a second board shows up.
+      #
+      # Same derivation as the image branding further down (rk3566-md1000 ->
+      # MD1000): one BOARD names a model, blank or several is "all", which is
+      # exactly when the image itself stops being model-specific.
+      - name: Compute board slug
+        id: slug
+        run: |
+          if [ "$(echo '${{ inputs.BOARD }}' | wc -w)" -eq 1 ]; then
+            SLUG=$(echo '${{ inputs.BOARD }}' | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
+          else
+            SLUG=all
+          fi
+          echo "SLUG=${SLUG}" >> "$GITHUB_OUTPUT"
+          echo "board slug: ${SLUG}"
+
       - name: Download arm (${{ inputs.DEVICE }})
         if: ${{ inputs.DEVICE != 'SM8650' && inputs.DEVICE != 'SM8750' && inputs.DEVICE != 'RK3566' }}
         uses: actions/download-artifact@v8
@@ -222,14 +244,14 @@ jobs:
           if [ -z "${BASE_IMG}" ]; then
             echo "::warning::no device-specific image found -> skip fastlane-base publish"; exit 0
           fi
-          echo "publishing ${BASE_IMG} as fastlane-base-${{ inputs.DEVICE }}.img.gz"
-          cp "${BASE_IMG}" "fastlane-base-${{ inputs.DEVICE }}.img.gz"
-          ls -la "fastlane-base-${{ inputs.DEVICE }}.img.gz"
+          echo "publishing ${BASE_IMG} as fastlane-base-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.img.gz"
+          cp "${BASE_IMG}" "fastlane-base-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.img.gz"
+          ls -la "fastlane-base-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.img.gz"
         continue-on-error: true
       - uses: softprops/action-gh-release@v3
         with:
-          tag_name: fastlane-base-${{ inputs.DEVICE }}
-          files: fastlane-base-${{ inputs.DEVICE }}.img.gz
+          tag_name: fastlane-base-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}
+          files: fastlane-base-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.img.gz
           make_latest: false
           prerelease: true
           body: userspace base image for the A/B/C fast lanes (auto-refreshed by every full build)

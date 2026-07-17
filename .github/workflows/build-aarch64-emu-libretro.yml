@@ -12,6 +12,10 @@ on:
       OWNER_LC:
         required: true
         type: string
+      BOARD:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   build-aarch64-emu-libretro:
@@ -26,6 +30,12 @@ jobs:
       JAVA_HOME: /usr
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
+      # This job builds no dtb, but the emulator closure pulls in `linux`, whose
+      # PKG_STAMP is derived from the dtb list -- which get_kernel_make_extracmd()
+      # derives from BOARD. Leave it unset and the stamp disagrees with the one
+      # build-aarch64 wrote, and the whole kernel gets recompiled here for nothing.
+      # See build-device.yml for the full story.
+      BOARD: ${{ inputs.BOARD }}
       ARCH: aarch64
       CACHE_KEY: ccache-aarch64-${{ inputs.DEVICE }}-emu-libretro-${{ github.sha }}
       DISABLE_COLORS: yes

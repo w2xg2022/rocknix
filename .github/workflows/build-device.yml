@@ -89,6 +89,20 @@ jobs:
       DEVICE: ${{ inputs.DEVICE }}
       OWNER_LC: ${{ inputs.OWNER_LC }}
 
+  # es4all: BOARD has to reach these two as well. They never build a dtb, but
+  # something in the emulator dependency closure pulls in `linux`, and the kernel
+  # is one of the few packages that sets PKG_STAMP -- from KERNEL_MAKE_EXTRACMD,
+  # which is the dtb list that get_kernel_make_extracmd() derives from BOARD.
+  # Without BOARD these jobs compute "every dtb under this DEVICE" (17 of them on
+  # RK3566) where build-aarch64 computed just "rk3566-md1000.dtb", so the stamp
+  # never matches and each of them recompiles the whole kernel -- measured at 36m
+  # of emu-libretro's 50m on run 29571456282, building 16 dtbs it will never use.
+  # It then leaves that all-dtb stamp in the tree, so build-aarch64-image (which
+  # does have BOARD) disagrees in turn and compiles the kernel a third time.
+  #
+  # It was never wrong, only wasteful: every rebuild is a valid kernel, and the
+  # one that ships is the image job's. It stayed invisible because the emulators'
+  # own compile time hid it -- it only surfaced once emu-slice made them free.
   build-aarch64-emu-libretro:
     needs:
       - build-aarch64
@@ -100,6 +114,7 @@ jobs:
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
       OWNER_LC: ${{ inputs.OWNER_LC }}
+      BOARD: ${{ inputs.BOARD }}
 
   build-aarch64-emu-standalone:
     needs:
@@ -113,6 +128,7 @@ jobs:
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
       OWNER_LC: ${{ inputs.OWNER_LC }}
+      BOARD: ${{ inputs.BOARD }}
 
   build-aarch64-image:
     needs:

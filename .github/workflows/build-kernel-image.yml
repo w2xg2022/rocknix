@@ -16,7 +16,7 @@ on:
         type: string
       BASE_IMAGE_TAG:
         description: "distribution-cache release tag holding the base userspace image"
-        default: "fastlane-base-RK3566"
+        default: "fastlane-base-RK3566-MD1000"
         type: string
       INJECT:
         description: "also run lane C (.github/inject/patch.sh) onto SYSTEM in the same pass"

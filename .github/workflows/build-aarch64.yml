@@ -77,6 +77,29 @@ jobs:
       - name: Clean up compressed aarch64-toolchain file
         run: rm build.aarch64-toolchain.tar.zst
 
+      # es4all: the cache is per-board, because the tree is. BOARD picks which
+      # dtbs the kernel builds, that list lands in linux's PKG_STAMP, and the
+      # stamp lands in the tree -- so two boards genuinely produce different
+      # trees. The fingerprint below already knows that (BOARD is in it), so a
+      # second board correctly misses; but without the board in the *name* it
+      # would then republish over the first board's tree, and the two would take
+      # turns evicting each other and neither would ever hit.
+      #
+      # Naming mirrors the image branding in build-aarch64-image (rk3566-md1000
+      # -> MD1000) rather than inventing a second scheme. Only a single BOARD
+      # names a model; blank (= every board under DEVICE) or several is "all",
+      # which is exactly when the image is not model-specific either.
+      - name: Compute board slug
+        id: slug
+        run: |
+          if [ "$(echo '${{ inputs.BOARD }}' | wc -w)" -eq 1 ]; then
+            SLUG=$(echo '${{ inputs.BOARD }}' | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
+          else
+            SLUG=all
+          fi
+          echo "SLUG=${SLUG}" >> "$GITHUB_OUTPUT"
+          echo "board slug: ${SLUG}"
+
       # es4all: restore the tree this job published last time, so build_distro
       # rebuilds only what actually changed instead of the whole userland (~80m).
       # The stamps already handle per-package changes correctly -- scripts/build
@@ -119,7 +142,7 @@ jobs:
         run: |
           CACHE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/userland-tree"
           WANT="${{ steps.fp.outputs.FP }}"
-          HAVE=$(curl -L --fail --silent "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}.fp" 2>/dev/null || echo "")
+          HAVE=$(curl -L --fail --silent "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.fp" 2>/dev/null || echo "")
           echo "want=${WANT}  cached=${HAVE:-<none>}"
           if [ -z "${HAVE}" ] || [ "${HAVE}" != "${WANT}" ]; then
             echo "::notice::config fingerprint does not match the cached tree -> full userland build"
@@ -128,7 +151,7 @@ jobs:
           rm -f ult.tar.zst; i=0
           while :; do
             SUF=$(printf "%02d" "$i")
-            if curl -L --fail --retry 3 -o part "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part${SUF}" 2>/dev/null; then
+            if curl -L --fail --retry 3 -o part "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst.part${SUF}" 2>/dev/null; then
               cat part >> ult.tar.zst; rm -f part; i=$((i+1))
             else
               break
@@ -281,11 +304,11 @@ jobs:
         run: |
           zstd -T0 -12 -f build.aarch64.tar -o ult.tar.zst
           split -b 1900m -d --suffix-length=2 ult.tar.zst \
-            "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part"
+            "userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst.part"
           rm -f ult.tar.zst
-          echo "${{ steps.fp.outputs.FP }}" > "userland-tree-aarch64-${{ inputs.DEVICE }}.fp"
-          ls -la userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* \
-                 userland-tree-aarch64-${{ inputs.DEVICE }}.fp
+          echo "${{ steps.fp.outputs.FP }}" > "userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.fp"
+          ls -la userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst.part* \
+                 userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.fp
         continue-on-error: true
 
       # The B lane reads parts by walking .part00, .part01, ... until one 404s,
@@ -299,10 +322,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           CACHE: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
         run: |
-          NEW=$(ls userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* 2>/dev/null | xargs -n1 basename)
+          NEW=$(ls userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst.part* 2>/dev/null | xargs -n1 basename)
           echo "new parts:"; echo "${NEW}"
           gh release view userland-tree -R "${CACHE}" --json assets -q '.assets[].name' 2>/dev/null \
-            | grep "^userland-tree-aarch64-${{ inputs.DEVICE }}\.tar\.zst\.part" \
+            | grep "^userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}\.tar\.zst\.part" \
             | while read -r a; do
                 if ! echo "${NEW}" | grep -qx "$a"; then
                   echo "dropping stale ${a}"
@@ -316,7 +339,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: userland-tree
-          files: "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*"
+          files: "userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst.part*"
           make_latest: false
           prerelease: true
           body: userland build tree snapshot (toolchain + sysroot + .stamps, minus build/). Consumed by the B lane, and by this job to skip rebuilding an unchanged userland.
@@ -333,7 +356,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: userland-tree
-          files: "userland-tree-aarch64-${{ inputs.DEVICE }}.fp"
+          files: "userland-tree-aarch64-${{ inputs.DEVICE }}-${{ steps.slug.outputs.SLUG }}.fp"
           make_latest: false
           prerelease: true
           token: ${{ secrets.GH_PAT }}

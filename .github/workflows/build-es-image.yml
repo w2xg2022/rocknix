@@ -18,7 +18,7 @@ on:
         type: string
       BASE_IMAGE_TAG:
         description: "distribution-cache release tag holding the base userspace image"
-        default: "fastlane-base-RK3566"
+        default: "fastlane-base-RK3566-MD1000"
         type: string
       INJECT:
         description: "also run lane C (.github/inject/patch.sh) onto SYSTEM in the same pass"
@@ -60,6 +60,22 @@ jobs:
       - name: Install host tools
         run: sudo apt-get update && sudo apt-get install -y squashfs-tools
 
+      # es4all: the tree is published per board (BOARD picks the kernel's dtb
+      # list, which lands in linux's PKG_STAMP and so in the tree), so pick the
+      # matching one. ES itself is board-agnostic and only needs its deps, which
+      # any board's tree has -- but the name has to resolve to something, and
+      # matching this lane's BOARD is the least surprising choice.
+      - name: Compute board slug
+        id: slug
+        run: |
+          if [ "$(echo '${{ inputs.BOARD }}' | wc -w)" -eq 1 ]; then
+            SLUG=$(echo '${{ inputs.BOARD }}' | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
+          else
+            SLUG=all
+          fi
+          echo "SLUG=${SLUG}" >> "$GITHUB_OUTPUT"
+          echo "board slug: ${SLUG}"
+
       # Restore the full build sysroot (toolchain + populated target sysroot +
       # .stamps, minus the per-package build/ dir) captured from a full build.
       # With deps stamped, `scripts/build emulationstation:target` recompiles
@@ -67,7 +83,7 @@ jobs:
       - name: Retrieve userland-tree snapshot
         id: sr
         run: |
-          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/userland-tree/userland-tree-aarch64-${{ env.DEVICE }}.tar.zst"
+          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/userland-tree/userland-tree-aarch64-${{ env.DEVICE }}-${{ steps.slug.outputs.SLUG }}.tar.zst"
           rm -f sr.tar.zst; i=0
           while :; do
             SUF=$(printf "%02d" "$i")
