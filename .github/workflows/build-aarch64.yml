@@ -65,11 +65,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Retrieve ccache
-        run: |
-          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
-          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Cache archive not found, skipping."     
-
       - name: Download aarch64-toolchain (${{ inputs.DEVICE }})
         uses: actions/download-artifact@v8
         with:
@@ -81,6 +76,79 @@ jobs:
 
       - name: Clean up compressed aarch64-toolchain file
         run: rm build.aarch64-toolchain.tar.zst
+
+      # es4all: restore the tree this job published last time, so build_distro
+      # rebuilds only what actually changed instead of the whole userland (~80m).
+      # The stamps already handle per-package changes correctly -- scripts/build
+      # re-derives PKG_DEEPHASH from each package's own files and rebuilds on
+      # mismatch, so a bumped es4all pin still recompiles ES.
+      #
+      # What stamps do NOT cover is the build config: calculate_stamp hashes a
+      # package's files and nothing else -- not options, not the env. Restoring a
+      # tree built under a different config therefore hands build_distro a set of
+      # stamps that claim work is done which was done differently. That is
+      # exactly how the earlier attempt at this failed, and it failed silently
+      # for 40 minutes before dying. So the tree is keyed on a fingerprint of
+      # everything the stamps are blind to, and a mismatch means a full build.
+      #
+      # The toolchain stamps go into the fingerprint too, which is why this runs
+      # after the toolchain artifact is unpacked: a match then guarantees the
+      # tree was built against this very toolchain, so letting the tree's own
+      # copy land on top of it is a no-op rather than a downgrade.
+      - name: Compute config fingerprint
+        id: fp
+        run: |
+          BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          TC=$(for s in "${BT}"/.stamps/*/build_*; do
+                 [ -f "$s" ] || continue
+                 printf '%s %s\n' "$s" "$(sed -n 's/^STAMP_PKG_DEEPHASH=//p' "$s")"
+               done | LC_ALL=C sort | sha256sum | cut -c1-16)
+          FP=$( { cat projects/${{ inputs.PROJECT }}/options \
+                      projects/${{ inputs.PROJECT }}/devices/${{ inputs.DEVICE }}/options \
+                      distributions/${{ inputs.PROJECT }}/options \
+                      projects/${{ inputs.PROJECT }}/packages/virtual/*/package.mk 2>/dev/null
+                  echo "ED=${EMULATION_DEVICE} E32=${ENABLE_32BIT} MP=${MODULES_PKG} SB=${SPLIT_BUILD}"
+                  echo "P=${{ inputs.PROJECT }} D=${{ inputs.DEVICE }} B=${{ inputs.BOARD }} A=${ARCH}"
+                  echo "TC=${TC} BUST=${{ vars.CACHE_BUST }}"
+                } | sha256sum | cut -c1-16 )
+          echo "FP=${FP}" >> "$GITHUB_OUTPUT"
+          echo "config fingerprint: ${FP}  (toolchain=${TC})"
+
+      - name: Restore userland-tree
+        id: ult_restore
+        run: |
+          CACHE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/userland-tree"
+          WANT="${{ steps.fp.outputs.FP }}"
+          HAVE=$(curl -L --fail --silent "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}.fp" 2>/dev/null || echo "")
+          echo "want=${WANT}  cached=${HAVE:-<none>}"
+          if [ -z "${HAVE}" ] || [ "${HAVE}" != "${WANT}" ]; then
+            echo "::notice::config fingerprint does not match the cached tree -> full userland build"
+            exit 0
+          fi
+          rm -f ult.tar.zst; i=0
+          while :; do
+            SUF=$(printf "%02d" "$i")
+            if curl -L --fail --retry 3 -o part "${CACHE}/userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part${SUF}" 2>/dev/null; then
+              cat part >> ult.tar.zst; rm -f part; i=$((i+1))
+            else
+              break
+            fi
+          done
+          if [ "$i" -eq 0 ] || ! tar --zstd -tf ult.tar.zst >/dev/null 2>&1; then
+            rm -f ult.tar.zst
+            echo "::warning::cached tree missing or corrupt -> full userland build"
+            exit 0
+          fi
+          tar --zstd -xf ult.tar.zst && rm -f ult.tar.zst
+          echo "reused=1" >> "$GITHUB_OUTPUT"
+          echo "restored userland tree from $i part(s); build_distro will rebuild only what changed"
+        continue-on-error: true
+
+      - name: Retrieve ccache
+        if: steps.ult_restore.outputs.reused != '1'
+        run: |
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/ccache/ccache-aarch64-${{ inputs.DEVICE }}.tar"
+          curl -L --fail --silent --show-error "$URL" | tar -xvf - || echo "Cache archive not found, skipping."
 
       - name: Build
         uses: corrupt952/actions-retry-command@v1.0.7
@@ -140,6 +208,7 @@ jobs:
             ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.threads/logs/
 
       - name: Clean ccache
+        if: steps.ult_restore.outputs.reused != '1'
         run: |
           export CCACHE_DIR=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -s -v
@@ -149,10 +218,12 @@ jobs:
           ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/toolchain/bin/ccache -z
 
       - name: Tar ccache
+        if: steps.ult_restore.outputs.reused != '1'
         run: |
-          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache  
+          tar --remove-files -cf ccache-aarch64-${{ inputs.DEVICE }}.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/.ccache
 
       - name: Save ccache
+        if: steps.ult_restore.outputs.reused != '1'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ccache
@@ -202,7 +273,9 @@ jobs:
           split -b 1900m -d --suffix-length=2 ult.tar.zst \
             "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part"
           rm -f ult.tar.zst
-          ls -la userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+          echo "${{ steps.fp.outputs.FP }}" > "userland-tree-aarch64-${{ inputs.DEVICE }}.fp"
+          ls -la userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* \
+                 userland-tree-aarch64-${{ inputs.DEVICE }}.fp
         continue-on-error: true
 
       # The B lane reads parts by walking .part00, .part01, ... until one 404s,
@@ -236,7 +309,23 @@ jobs:
           files: "userland-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*"
           make_latest: false
           prerelease: true
-          body: userland build tree snapshot (toolchain + sysroot + .stamps, minus build/), consumed by the B lane
+          body: userland build tree snapshot (toolchain + sysroot + .stamps, minus build/). Consumed by the B lane, and by this job to skip rebuilding an unchanged userland.
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
+
+      # Publish the fingerprint only after the tree itself is up. It is the gate
+      # the next run gates its restore on, so if it landed first and the tree
+      # upload then failed, that run would read a matching fingerprint and pull
+      # down a stale or half-written tree.
+      - name: Save userland-tree fingerprint
+        if: steps.ult.outcome == 'success'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: userland-tree
+          files: "userland-tree-aarch64-${{ inputs.DEVICE }}.fp"
+          make_latest: false
+          prerelease: true
           token: ${{ secrets.GH_PAT }}
           repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
         continue-on-error: true
