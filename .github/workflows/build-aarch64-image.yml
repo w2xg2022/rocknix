@@ -96,7 +96,16 @@ jobs:
         run: rm build.emu-standalone.tar*
 
       # clean to rebuild retroarch with 32bit enabled
+      #
+      # es4all: only worth doing where 32-bit is actually on. emu-standalone
+      # builds retroarch with ENABLE_32BIT=no pinned in its job env, so this
+      # job cleans it to pick up 32-bit support from the device's options.
+      # RK3566 sets ENABLE_32BIT="no" (devices/RK3566/options) and this job does
+      # not override it, so the rebuild produces a byte-identical retroarch --
+      # it even re-downloads the source first. Measured at ~7m of the image
+      # job's 49m on a full RK3566 build, for nothing.
       - name: Clean retroarch
+        if: ${{ inputs.DEVICE != 'RK3566' }}
         run: |
           ./scripts/get_env > .env
           docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ inputs.OWNER_LC }}/rocknix-build:latest" \
