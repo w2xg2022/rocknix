@@ -110,12 +110,14 @@ jobs:
           ./scripts/get_env > .env
           docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ inputs.OWNER_LC }}/rocknix-build:latest" \
             bash -c "./scripts/clean retroarch"
-      # clean to rebuild emulationstation with credentials
-      - name: Clean emulationstation
-        run: |
-          ./scripts/get_env > .env
-          docker run --init --env-file .env --rm --user $(id -u):$(id -g) -v ${PWD}:${PWD} -w ${PWD} "ghcr.io/${{ inputs.OWNER_LC }}/rocknix-build:latest" \
-            bash -c "./scripts/clean emulationstation"
+      # es4all: the emulationstation clean that used to sit here is gone. It
+      # existed because the credentials are compiled in and calculate_stamp does
+      # not hash them, so the only way to be sure a key change took effect was to
+      # force a rebuild -- at the cost of recompiling ES on every single build
+      # (~19m of this job's 49m) to reproduce what build-aarch64 already built.
+      # build-aarch64 now gets the credentials itself and ES sets PKG_STAMP from
+      # them, so a rotated key rebuilds on its own and this job can just install
+      # what it was handed. Assembling, not recompiling, is this job's purpose.
 
       - name: build
         run: |
@@ -125,6 +127,34 @@ jobs:
             bash -c "./scripts/build_distro"; echo $? > docker_exit_code; } | tee output.log | grep -E  --color=never --line-buffered "^GET|^UNPACK|^BUILD|^INSTALL" || true
           exit_code=$(<docker_exit_code)
           exit $exit_code
+
+      # es4all: ES's system list comes from the emulators package. If ES ever
+      # also installs its "not an emulation device" stub es_systems.cfg, which of
+      # the two lands in the image is a race -- scripts/image assembles it with
+      # start_multithread_build, which sets MTWITHLOCKS=yes and so skips the
+      # ordered dependency install that would otherwise put emulators last.
+      # Losing that race ships a firmware whose ES lists nothing but Tools, and
+      # it looks perfectly healthy until someone boots it. Fail loudly instead.
+      - name: Verify the system list survived
+        run: |
+          BT=build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          shopt -s nullglob
+          stub=(${BT}/install_pkg/emulationstation-*/usr/config/emulationstation/es_systems.cfg)
+          if [ ${#stub[@]} -gt 0 ]; then
+            echo "::error::emulationstation installed ${stub[0]} -- it would race the emulators package's real es_systems.cfg"
+            exit 1
+          fi
+          real=(${BT}/install_pkg/emulators-*/usr/config/emulationstation/es_systems.cfg)
+          if [ ${#real[@]} -eq 0 ]; then
+            echo "::error::the emulators package installed no es_systems.cfg"
+            exit 1
+          fi
+          n=$(grep -c '<system>' "${real[0]}" || true)
+          echo "${real[0]}: ${n} systems"
+          if [ "${n}" -lt 10 ]; then
+            echo "::error::only ${n} systems -- expected the full list"
+            exit 1
+          fi
 
       - name: Archive output.logs (${{ inputs.DEVICE }}-aarch64-image)
         if: failure()

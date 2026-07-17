@@ -15,6 +15,15 @@ PKG_BUILD_FLAGS="-gold"
 GET_HANDLER_SUPPORT="git"
 PKG_PATCH_DIRS+="${DEVICE}"
 
+# es4all: the scraper credentials below are compiled in, but calculate_stamp
+# only hashes a package's own files -- rotate a key and the stamp still matches,
+# so a stale binary ships. That gap is why the image job cleaned this package on
+# every build, spending ~19m recompiling what the userland job had already
+# built. PKG_STAMP is the build system's own hook for exactly this: it folds the
+# values into the deep hash so a changed key rebuilds by itself. Only the
+# sha256 reaches the stamp file, never the secrets.
+PKG_STAMP="${SCREENSCRAPER_DEV_LOGIN}${GAMESDB_APIKEY}${CHEEVOS_DEV_LOGIN}"
+
 if [ ! "${OPENGL}" = "no" ]; then
   PKG_DEPENDS_TARGET+=" ${OPENGL} glu"
   PKG_CMAKE_OPTS_TARGET+=" -DGL=1"
@@ -109,8 +118,19 @@ makeinstall_target() {
   cp -rf ${PKG_DIR}/config/common/*.cfg ${INSTALL}/usr/config/emulationstation
 
   # If we're not an emulation device, ES may still be installed so we need a default config.
-  if [ "${EMULATION_DEVICE}" = "no" ] || \
-     [ "${BASE_ONLY}" = "true" ]
+  #
+  # es4all: ...but SPLIT_BUILD says EMULATION_DEVICE=no is not a statement about
+  # the device. The userland job pins it purely to keep the emulators out of that
+  # job; the box is still an emulation device and the real es_systems.cfg comes
+  # from the emulators package. Writing the stub there would be actively unsafe:
+  # the image is assembled by a multithreaded scheduler (scripts/image runs
+  # start_multithread_build, which sets MTWITHLOCKS=yes and so skips the ordered
+  # dependency install), so whether the emulators package's real file lands after
+  # this stub is a race -- and losing that race ships a firmware whose ES lists
+  # no systems at all.
+  if [ "${SPLIT_BUILD}" != "yes" ] && \
+     { [ "${EMULATION_DEVICE}" = "no" ] || \
+       [ "${BASE_ONLY}" = "true" ]; }
   then
     cat <<EOF >${INSTALL}/usr/config/emulationstation/es_systems.cfg
 <?xml version="1.0" encoding="UTF-8"?>

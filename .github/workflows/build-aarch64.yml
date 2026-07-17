@@ -21,9 +21,29 @@ jobs:
   build-aarch64:
     runs-on: ubuntu-24.04
     env:
+      # Do not "tidy" these into quoted strings. Bare no is a YAML 1.1 boolean,
+      # so the container receives EMULATION_DEVICE=false, not "no". Everything
+      # that gates on = "yes" behaves as intended, but emulationstation's stub
+      # es_systems.cfg is written on = "no" -- which never matches today. Quote
+      # it and that stub starts being installed, racing the emulators package's
+      # real system list during the multithreaded image assembly; lose the race
+      # and the firmware boots to an ES with nothing but Tools in it.
       EMULATION_DEVICE: no
       ENABLE_32BIT: no
       MODULES_PKG: no
+      # es4all: EMULATION_DEVICE=no above is how this job keeps the emulators
+      # out of its own build -- it is not a claim about the device. Packages that
+      # read it cannot tell the difference and change what they install, so say
+      # it explicitly. Quoted: bare yes is a YAML 1.1 boolean and would reach the
+      # container as "true", silently inverting every [ "$SPLIT_BUILD" = "yes" ].
+      SPLIT_BUILD: "yes"
+      # Compiled into emulationstation (see its pre_configure_target). Passing
+      # them here means the ES this job builds is the one that ships, so the
+      # image job no longer has to clean and rebuild it -- ~19m of its 49m.
+      # A rotated key still forces a rebuild: ES sets PKG_STAMP from these.
+      CHEEVOS_DEV_LOGIN: ${{ secrets.CHEEVOS_DEV_LOGIN }}
+      GAMESDB_APIKEY: ${{ secrets.GAMESDB_APIKEY }}
+      SCREENSCRAPER_DEV_LOGIN: ${{ secrets.SCREENSCRAPER_DEV_LOGIN }}
       JAVA_HOME: /usr
       PROJECT: ${{ inputs.PROJECT }}
       DEVICE: ${{ inputs.DEVICE }}
