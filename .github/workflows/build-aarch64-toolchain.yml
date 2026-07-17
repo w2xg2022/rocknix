@@ -49,10 +49,45 @@ jobs:
       # (toolchain + host tools + .stamps)。.stamps 在 -> 下面 build_mt toolchain
       # 跳过重编(~40min 省下),抓不到就照旧走 ccache 编译。此前该还原逻辑只写在
       # 方案C(build-kernel-image.yml),full build 的本 job 只当生产者、从不消费。
+      #
+      # es4all: gated on a config fingerprint, like the userland tree.
+      #
+      # Restoring this tree is less dangerous than it looks: the Build step below
+      # is deliberately NOT gated on reused, so build_mt still walks every
+      # toolchain package and scripts/build re-derives PKG_DEEPHASH from each
+      # one's own files. Bump gcc and it does get rebuilt.
+      #
+      # The hole is the one calculate_stamp always has: it hashes a package's
+      # files and nothing else, so it cannot see the build config. Change a
+      # compiler flag in options and every stamp still matches -- the whole
+      # toolchain is silently carried over, and every package built against it
+      # afterwards inherits the wrong flags. Narrow, but it fails quietly and it
+      # poisons everything downstream, so it gets the same key as the userland.
+      - name: Compute config fingerprint
+        id: fp
+        run: |
+          FP=$( { cat projects/${{ inputs.PROJECT }}/options \
+                      projects/${{ inputs.PROJECT }}/devices/${{ inputs.DEVICE }}/options \
+                      distributions/${{ inputs.PROJECT }}/options 2>/dev/null
+                  echo "P=${{ inputs.PROJECT }} D=${{ inputs.DEVICE }} A=${ARCH}"
+                  echo "BUST=${{ vars.CACHE_BUST }}"
+                } | sha256sum | cut -c1-16 )
+          echo "FP=${FP}" >> "$GITHUB_OUTPUT"
+          echo "config fingerprint: ${FP}"
+
       - name: Reuse prebuilt toolchain tree
         id: tc
         run: |
-          BASE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree/toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst"
+          CACHE="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/toolchain-tree"
+          WANT="${{ steps.fp.outputs.FP }}"
+          HAVE=$(curl -L --fail --silent "${CACHE}/toolchain-tree-aarch64-${{ inputs.DEVICE }}.fp" 2>/dev/null || echo "")
+          echo "want=${WANT}  cached=${HAVE:-<none>}"
+          if [ -z "${HAVE}" ] || [ "${HAVE}" != "${WANT}" ]; then
+            echo "reused=0" >> "$GITHUB_OUTPUT"
+            echo "::notice::config fingerprint does not match the cached toolchain -> compiling from ccache"
+            exit 0
+          fi
+          BASE="${CACHE}/toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst"
           rm -f tc.tar.zst; i=0
           while :; do
             SUF=$(printf "%02d" "$i")
@@ -153,7 +188,31 @@ jobs:
         run: |
           split -b 1900m -d --suffix-length=2 build.aarch64-toolchain.tar.zst \
             toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part
-          ls -la toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part*
+          echo "${{ steps.fp.outputs.FP }}" > toolchain-tree-aarch64-${{ inputs.DEVICE }}.fp
+          ls -la toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* \
+                 toolchain-tree-aarch64-${{ inputs.DEVICE }}.fp
+
+      # Consumers walk .part00, .part01, ... until one 404s, so a leftover part
+      # from a larger previous tree would be concatenated onto a smaller new one
+      # and silently corrupt it. Drop only the parts this upload will not
+      # replace, so a failed upload cannot leave the cache emptied instead.
+      - name: Drop stale toolchain-tree parts
+        if: steps.tc.outputs.reused != '1'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          CACHE: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        run: |
+          NEW=$(ls toolchain-tree-aarch64-${{ inputs.DEVICE }}.tar.zst.part* 2>/dev/null | xargs -n1 basename)
+          gh release view toolchain-tree -R "${CACHE}" --json assets -q '.assets[].name' 2>/dev/null \
+            | grep "^toolchain-tree-aarch64-${{ inputs.DEVICE }}\.tar\.zst\.part" \
+            | while read -r a; do
+                if ! echo "${NEW}" | grep -qx "$a"; then
+                  echo "dropping stale ${a}"
+                  gh release delete-asset toolchain-tree "$a" -R "${CACHE}" -y || true
+                fi
+              done
+        continue-on-error: true
+
       - uses: softprops/action-gh-release@v3
         if: steps.tc.outputs.reused != '1'
         with:
@@ -162,6 +221,21 @@ jobs:
           make_latest: false
           prerelease: true
           body: prebuilt toolchain trees (toolchain + host tools + .stamps) for Option C kernel-image reuse
+          token: ${{ secrets.GH_PAT }}
+          repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
+        continue-on-error: true
+
+      # Publish the fingerprint only once the tree is up: it is the gate the next
+      # run reads, so landing it first and then failing to upload the tree would
+      # send that run to a stale or half-written snapshot.
+      - name: Save toolchain-tree fingerprint
+        if: steps.tc.outputs.reused != '1'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: toolchain-tree
+          files: toolchain-tree-aarch64-${{ inputs.DEVICE }}.fp
+          make_latest: false
+          prerelease: true
           token: ${{ secrets.GH_PAT }}
           repository: ${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}
         continue-on-error: true
