@@ -68,11 +68,11 @@ jobs:
       - name: Compute board slug
         id: slug
         run: |
-          if [ "$(echo '${{ inputs.BOARD }}' | wc -w)" -eq 1 ]; then
-            SLUG=$(echo '${{ inputs.BOARD }}' | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]')
-          else
-            SLUG=all
-          fi
+          case "$(echo '${{ inputs.BOARD }}' | wc -w)" in
+            0) SLUG=all ;;
+            1) SLUG=$(echo '${{ inputs.BOARD }}' | sed 's/^rk[0-9]*-//' | tr '[:lower:]' '[:upper:]') ;;
+            *) SLUG="MULTI-$(echo '${{ inputs.BOARD }}' | tr ' ' '\n' | LC_ALL=C sort | sha256sum | cut -c1-8)" ;;
+          esac
           echo "SLUG=${SLUG}" >> "$GITHUB_OUTPUT"
           echo "board slug: ${SLUG}"
 
