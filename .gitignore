@@ -48,3 +48,6 @@ projects/**/*.old
 /.env
 /.es_cache
 /.config
+
+# es4all: .github/scripts/capture-run.sh writes its snapshots to the cwd
+capture-*/
