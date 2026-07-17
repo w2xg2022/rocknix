@@ -164,7 +164,12 @@ jobs:
           retry_interval: 10
 
       - name: Archive output.logs (${{ inputs.DEVICE }}-aarch64)
-        if: failure()
+        # es4all: was failure() -- which meant .threads/logs (the per-package
+        # build timings) only ever survived a broken build. They are the only
+        # direct evidence of where a green build actually spends its time, and
+        # a green build is exactly the one you want to speed up. purge-artifact
+        # does not touch output.logs-*, so these keep the usual 90 days.
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: output.logs-${{ inputs.DEVICE }}-aarch64
@@ -199,7 +204,12 @@ jobs:
           retry_interval: 10
 
       - name: Archive output.logs (${{ inputs.DEVICE }}-modules)
-        if: failure()
+        # es4all: was failure() -- which meant .threads/logs (the per-package
+        # build timings) only ever survived a broken build. They are the only
+        # direct evidence of where a green build actually spends its time, and
+        # a green build is exactly the one you want to speed up. purge-artifact
+        # does not touch output.logs-*, so these keep the usual 90 days.
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: output.logs-${{ inputs.DEVICE }}-modules
