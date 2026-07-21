@@ -3,8 +3,8 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="11e8bc98e43f93427daf1c3d2e6490b0634719c7"
-PKG_GIT_CLONE_BRANCH="main"
+PKG_VERSION="f2660440860c8440781135f7891ac00411b19e98"
+PKG_GIT_CLONE_BRANCH="v1.1-dev"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
 PKG_URL="${PKG_SITE}.git"
@@ -86,20 +86,33 @@ makeinstall_target() {
   rm -rf ${INSTALL}/usr/config/emulationstation/resources/logo.png
 
   mkdir -p ${INSTALL}/usr/bin
-  cp ${PKG_BUILD}/es_settings ${INSTALL}/usr/bin
+  # es4all: 上游这三行原本取 ${PKG_BUILD}/<文件>,因为上游 PKG_SITE 指向
+  # ROCKNIX/emulationstation-next(根目录有这三支)。换成 w2xg2022/es4all 后根目录
+  # 没有了,必须改路径,否则 makeinstall 直接失败。
+  # es_settings / serial_number_check 是 ROCKNIX 自己的机制 -> 用 package 自带副本。
+  cp ${PKG_DIR}/sources/es_settings ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/es_settings
 
-  cp ${PKG_BUILD}/start_es.sh ${INSTALL}/usr/bin
-  chmod 0755 ${INSTALL}/usr/bin/start_es.sh
-
-  cp ${PKG_BUILD}/serial_number_check ${INSTALL}/usr/bin
+  cp ${PKG_DIR}/sources/serial_number_check ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/serial_number_check
+
+  # start_es.sh 由 es4all 维护(已移除 --no-splash:该参数在 main.cpp 直接
+  # setBool("SplashScreen", false),且执行在载入 es_settings.cfg 之后,每次开机
+  # 覆写用户设定,导致「启动画面设置」永远记不住)。故取 es4all 那份,不用
+  # ${PKG_DIR}/sources 的旧版。
+  cp ${PKG_BUILD}/dist/rocknix/sources/start_es.sh ${INSTALL}/usr/bin
+  chmod 0755 ${INSTALL}/usr/bin/start_es.sh
 
   # es4all: bluetooth shim so ES (batocera lineage) `batocera-bluetooth <verb>`
   # drives ROCKNIX's own rocknix-bluetooth (else the BLUETOOTH menu is hidden
   # because ES probes for the batocera-bluetooth executable).
   cp ${PKG_BUILD}/dist/rocknix/sources/batocera-bluetooth ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/batocera-bluetooth
+
+  # es4all: AUDIO OUTPUT 后端脚本,ES 平台设置会调用 /usr/bin/es4all-setauddev。
+  # 不装的话该选单点了没反应。
+  cp ${PKG_BUILD}/dist/rocknix/sources/es4all-setauddev ${INSTALL}/usr/bin
+  chmod 0755 ${INSTALL}/usr/bin/es4all-setauddev
 
   # es4all: 参数化 eMMC 安装器(一支 + 内置 board 表,仿 EmuELEC installtoemmc.sh)。
   # 把 U 盘启动的 ROCKNIX 装进内部 eMMC:删 Armbian rootfs、ROCKNIX + STORAGE、
