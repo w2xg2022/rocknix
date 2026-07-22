@@ -276,12 +276,26 @@ jobs:
       - name: Print space
         run: df -h
 
+      # es4all: build.build.aarch64.tar was written uncompressed, so a ~9.5GB
+      # tar went to upload-artifact, which then zip-compressed it inline while
+      # uploading -- 7m compress + 12m upload on the critical path. zstd -3 up
+      # front with compression-level 0 on the upload moves that work to a fast
+      # multi-threaded compressor and shrinks the bytes on the wire.
+      # Consumers (emu-libretro, emu-standalone) untar with `tar -xf`, which
+      # auto-detects the compression, so they need no change. The filename is
+      # deliberately kept as .tar for the same reason.
+      #
+      # build.aarch64.tar is intentionally left uncompressed here: the "Stage
+      # tree" step below re-compresses it at -12 for the long-lived
+      # userland-tree cache, and compressing twice would both waste time and
+      # break `tar --zstd -xf` on the restore side.
       - name: Compress directory
         run: |
-          sudo tar --remove-files \
+          sudo tar --remove-files -I 'zstd -T0 -3' \
           -cf build.build.aarch64.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/build
           sudo tar --remove-files \
           -cf build.aarch64.tar ./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64/
+          ls -la build.aarch64.tar build.build.aarch64.tar
 
       - uses: actions/upload-artifact@v7
         with:
@@ -293,6 +307,7 @@ jobs:
           name: aarch64 build (${{ inputs.DEVICE }})
           path: build.build.aarch64.tar
           if-no-files-found: error
+          compression-level: 0
 
       # es4all: publish this tree as userland-tree, which the B lane
       # (build-es-image) restores so it can recompile ES alone instead of
