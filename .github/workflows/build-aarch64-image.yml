@@ -34,6 +34,11 @@ jobs:
       DEVICE: ${{ inputs.DEVICE }}
       BOARD: ${{ inputs.BOARD }}
       ARCH: aarch64
+      # es4all: must match build-aarch64.yml. This job runs build_distro, so the
+      # image metapackage is re-evaluated here too -- leaving the default (yes)
+      # would just move the debug/benchmark builds into this job instead of
+      # removing them.
+      DEBUG_PACKAGES: no
       CACHE_KEY: ccache-aarch64-${{ inputs.DEVICE }}-image-${{ github.sha }}
       DISABLE_COLORS: yes
       CCACHE_COMPILERCHECK: content

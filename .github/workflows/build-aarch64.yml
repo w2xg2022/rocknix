@@ -31,6 +31,14 @@ jobs:
       EMULATION_DEVICE: no
       ENABLE_32BIT: no
       MODULES_PKG: no
+      # es4all: drop the debug/benchmark metapackage from the firmware. Upstream
+      # defaults DEBUG_PACKAGES to yes (distributions/ROCKNIX/options), which
+      # pulls gdb, memtester, kmsxx, nvtop and apitrace -- apitrace alone is
+      # ~2.4m of this job, for an OpenGL call tracer no retro box needs shipped.
+      # Unlike EMULATION_DEVICE above, the quoting does not matter here: the only
+      # gate is `= "yes"`, so the YAML 1.1 false this becomes excludes it just as
+      # a literal "no" would. Set DEBUG_PACKAGES=yes to get the tools back.
+      DEBUG_PACKAGES: no
       # es4all: EMULATION_DEVICE=no above is how this job keeps the emulators
       # out of its own build -- it is not a claim about the device. Packages that
       # read it cannot tell the difference and change what they install, so say
