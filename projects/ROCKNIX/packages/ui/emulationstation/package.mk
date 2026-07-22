@@ -3,7 +3,7 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="f2660440860c8440781135f7891ac00411b19e98"
+PKG_VERSION="e94af47568188cd120b50ede9226e5593f68c662"
 PKG_GIT_CLONE_BRANCH="v1.1-dev"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
