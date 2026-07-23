@@ -271,14 +271,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="fw-${DATE}"
+          # es4all: 固件发布为正式版(--latest)，让它稳拿 GitHub 的 "Latest" 徽章、
+          # 排在 release 列表最前。以前用 --prerelease，结果一个中间产出
+          # (rk3566-md1000-kernel-verified，非 prerelease)反而霸占了 Latest，
+          # 用户找最新固件得往下翻。--latest 会自动把上一个固件降为普通 release。
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" ROCKNIX-* --repo "${{ github.repository }}" --clobber
+            gh release edit "$TAG" --repo "${{ github.repository }}" --latest --prerelease=false
           else
             gh release create "$TAG" ROCKNIX-* \
               --repo "${{ github.repository }}" \
               --title "Firmware ${DATE}" \
               --notes "Fork build firmware (run ${{ github.run_id }}). Assets >2GB are split into .partNN; recombine with: cat FILE.part* > FILE" \
-              --prerelease
+              --latest
           fi
 
   release-nightly:
