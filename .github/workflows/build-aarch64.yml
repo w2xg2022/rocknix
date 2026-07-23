@@ -135,8 +135,47 @@ jobs:
         id: fp
         run: |
           BT=./build.ROCKNIX-${{ inputs.DEVICE }}.aarch64
+          # es4all: TC used to cover every .stamps/*/build_*, linux's included.
+          # That threw away the whole userland tree on any device tree edit.
+          # linux:host does nothing but `headers_install` (see packages/linux
+          # makeinstall_host) -- the only thing it contributes to the toolchain
+          # is the uapi headers under SYSROOT_PREFIX/usr/include. But its stamp
+          # is calculate_stamp(), which also covers
+          # devices/${DEVICE}/patches/linux/, and that is where the board DTS
+          # patches live. So touching a .dts rebuilt linux:host -> new stamp ->
+          # new TC -> new FP -> cache miss -> ~50m rebuilding 455 packages, for a
+          # change that cannot alter one byte of userland. Measured: run
+          # 29829610520 (no dts change) TC=3e9635743d8ee3c0, run 29918159131
+          # (dts change only) TC=b875d859123a0a26.
+          #
+          # So hash what the userland actually consumes -- the installed headers
+          # -- and leave linux's stamp out of TC. A real kernel bump still
+          # rewrites those headers and still invalidates the tree; a DTS edit no
+          # longer does, and build_distro still rebuilds linux for the new dtb
+          # because its stamp is unchanged by any of this.
+          #
+          # If the sysroot is not where we expect, fall back to the old
+          # behaviour rather than silently dropping the kernel from the key --
+          # over-invalidating is slow, under-invalidating ships a stale image.
+          KH=""
+          for d in "${BT}"/toolchain/*-rocknix-linux-gnu*/sysroot/usr/include; do
+            [ -d "${d}" ] || continue
+            KH=$(find -L "${d}" -type f -print0 2>/dev/null \
+                   | LC_ALL=C sort -z | xargs -0 sha256sum \
+                   | sha256sum | cut -c1-16)
+            break
+          done
+          if [ -n "${KH}" ]; then
+            SKIP_LINUX=1
+          else
+            SKIP_LINUX=0
+            echo "::warning::sysroot headers not found -> keeping linux in TC (dts edits will still bust the userland cache)"
+          fi
           TC=$(for s in "${BT}"/.stamps/*/build_*; do
                  [ -f "$s" ] || continue
+                 case "${s}" in
+                   */.stamps/linux/build_*) [ "${SKIP_LINUX}" = "1" ] && continue ;;
+                 esac
                  printf '%s %s\n' "$s" "$(sed -n 's/^STAMP_PKG_DEEPHASH=//p' "$s")"
                done | LC_ALL=C sort | sha256sum | cut -c1-16)
           FP=$( { cat projects/${{ inputs.PROJECT }}/options \
@@ -145,10 +184,10 @@ jobs:
                       projects/${{ inputs.PROJECT }}/packages/virtual/*/package.mk 2>/dev/null
                   echo "ED=${EMULATION_DEVICE} E32=${ENABLE_32BIT} MP=${MODULES_PKG} SB=${SPLIT_BUILD}"
                   echo "P=${{ inputs.PROJECT }} D=${{ inputs.DEVICE }} B=${{ inputs.BOARD }} A=${ARCH}"
-                  echo "TC=${TC} BUST=${{ vars.CACHE_BUST }}"
+                  echo "TC=${TC} KH=${KH} BUST=${{ vars.CACHE_BUST }}"
                 } | sha256sum | cut -c1-16 )
           echo "FP=${FP}" >> "$GITHUB_OUTPUT"
-          echo "config fingerprint: ${FP}  (toolchain=${TC})"
+          echo "config fingerprint: ${FP}  (toolchain=${TC} headers=${KH:-<fallback>})"
 
       - name: Restore userland-tree
         id: ult_restore
