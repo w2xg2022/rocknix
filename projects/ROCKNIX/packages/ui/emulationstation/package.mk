@@ -3,8 +3,10 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="e94af47568188cd120b50ede9226e5593f68c662"
-PKG_GIT_CLONE_BRANCH="v1.1-dev"
+PKG_VERSION="c28dbaa145724260dde951325cff76c6bd30462f"
+# ⚠️ es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
+# 这一栏写着不存在的分支就直接打断本包的 clone —— 每次 es4all 改名都要同步这里。
+PKG_GIT_CLONE_BRANCH="v1.1-stable"
 PKG_LICENSE="GPL"
 PKG_SITE="https://github.com/w2xg2022/es4all"
 PKG_URL="${PKG_SITE}.git"
@@ -113,6 +115,14 @@ makeinstall_target() {
   # 不装的话该选单点了没反应。
   cp ${PKG_BUILD}/dist/rocknix/sources/es4all-setauddev ${INSTALL}/usr/bin
   chmod 0755 ${INSTALL}/usr/bin/es4all-setauddev
+
+  # es4all: 视频模式后端(wlr-randr, Wayland)。1.1 已移除 VIDEO MODE 选单，但
+  # 【后端与开机还原保留】—— autostart 002-es4all-glue 仍会无参调用它，把
+  # system.videomode 还原回去(wlr-randr 只改执行期状态、重开机就没了)。所以
+  # 选单没了不等于这支不用装,漏装就是每次开机分辨率回到 EDID 预设。
+  # ⚠️ / 是唯读 squashfs、/usr/bin 写不进新档,漏装事后补不上,只能重编。
+  cp ${PKG_BUILD}/dist/rocknix/sources/es4all-setvideomode ${INSTALL}/usr/bin
+  chmod 0755 ${INSTALL}/usr/bin/es4all-setvideomode
 
   # es4all: 参数化 eMMC 安装器(一支 + 内置 board 表,仿 EmuELEC installtoemmc.sh)。
   # 把 U 盘启动的 ROCKNIX 装进内部 eMMC:删 Armbian rootfs、ROCKNIX + STORAGE、
