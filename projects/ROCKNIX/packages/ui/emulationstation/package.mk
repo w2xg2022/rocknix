@@ -3,8 +3,13 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-PKG_VERSION="c28dbaa145724260dde951325cff76c6bd30462f"
-# ⚠️ es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
+# ⚠️ 上一版 pin 的 c28dbaa 已成孤儿：es4all 把 commit 讯息由繁体重写成简体
+# (history rewrite)，旧 SHA 整批作废、远端 objects 都取不到了，浅克隆会直接失败。
+# 已核对：ES 产物(es-app/es-core/resources/locale/dist/rocknix)在 c28dbaa 与本
+# SHA 之间零差异 —— 重写只动 commit 讯息，编出来的固件内容完全一致。
+# 教训：pin 的是 SHA，上游一旦 rewrite history 就得重新取；别只信旧 SHA。
+PKG_VERSION="786328bc4e99c441a895eb7be3f3bb63d860d8ba"
+# es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
 # 这一栏写着不存在的分支就直接打断本包的 clone —— 每次 es4all 改名都要同步这里。
 PKG_GIT_CLONE_BRANCH="v1.1-stable"
 PKG_LICENSE="GPL"
