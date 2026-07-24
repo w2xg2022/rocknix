@@ -3,12 +3,16 @@
 
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
-# ⚠️ 上一版 pin 的 c28dbaa 已成孤儿：es4all 把 commit 讯息由繁体重写成简体
-# (history rewrite)，旧 SHA 整批作废、远端 objects 都取不到了，浅克隆会直接失败。
-# 已核对：ES 产物(es-app/es-core/resources/locale/dist/rocknix)在 c28dbaa 与本
-# SHA 之间零差异 —— 重写只动 commit 讯息，编出来的固件内容完全一致。
-# 教训：pin 的是 SHA，上游一旦 rewrite history 就得重新取；别只信旧 SHA。
-PKG_VERSION="786328bc4e99c441a895eb7be3f3bb63d860d8ba"
+# pin 锚在 tag v1.1(已发布正式版)，不是分支 HEAD。交接单规则：编已发布版 pin
+# 对应 tag `v1.X`(现场 git rev-parse v1.1)，别 pin origin/v1.1-stable HEAD ——
+# 那是活分支，发版后每推 README/dist 一类 commit 就往前漂，ES 产物相同但可追溯性
+# 应锚在 tag。
+# ⚠️ 两个坑叠一起(2026-07-24)：①上一版 pin 的 c28dbaa 因 es4all 把 commit 讯息由
+# 繁体重写成简体(history rewrite)整批作废、远端取不到 objects，浅克隆会直接失败；
+# ②旧的 locale 修复 commit 126d87e0cf 也在重写后换成了 c1d6fdd(=v1.1)。
+# 已核对 ES 产物(es-app/es-core/resources/locale/dist/rocknix)在 v1.1 与分支 HEAD
+# 之间零差异，编出来的固件完全一致。
+PKG_VERSION="c1d6fddbc5e96fcdef15db34b53d7c21db0a7b4e"   # = tag v1.1
 # es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
 # 这一栏写着不存在的分支就直接打断本包的 clone —— 每次 es4all 改名都要同步这里。
 PKG_GIT_CLONE_BRANCH="v1.1-stable"
