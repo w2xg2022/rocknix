@@ -4,15 +4,13 @@
 # es4all: 源码改由统一仓库 es4all 提供（原 ROCKNIX/emulationstation-next）。
 PKG_NAME="emulationstation"
 # pin 锚在 tag v1.1(已发布正式版)，不是分支 HEAD。交接单规则：编已发布版 pin
-# 对应 tag `v1.X`(现场 git rev-parse v1.1)，别 pin origin/v1.1-stable HEAD ——
-# 那是活分支，发版后每推 README/dist 一类 commit 就往前漂，ES 产物相同但可追溯性
-# 应锚在 tag。
-# ⚠️ 两个坑叠一起(2026-07-24)：①上一版 pin 的 c28dbaa 因 es4all 把 commit 讯息由
-# 繁体重写成简体(history rewrite)整批作废、远端取不到 objects，浅克隆会直接失败；
-# ②旧的 locale 修复 commit 126d87e0cf 也在重写后换成了 c1d6fdd(=v1.1)。
-# 已核对 ES 产物(es-app/es-core/resources/locale/dist/rocknix)在 v1.1 与分支 HEAD
-# 之间零差异，编出来的固件完全一致。
-PKG_VERSION="c1d6fddbc5e96fcdef15db34b53d7c21db0a7b4e"   # = tag v1.1
+# 对应 tag `v1.X`(现场 git fetch --force --tags && git rev-parse v1.1)。
+# ⚠️ tag v1.1 会被【重裁】：本次(2026-07-25)从 c1d6fdd 重裁到 49b5729，新增了手柄
+# 「插上即用 + A 在南」的两处共用改动 A(剥 SDL 2.26+ 的 CRC-16 GUID，es-core
+# InputManager rebuildAllJoysticks，删掉那段 #if WIN32 让 Linux 也剥)、B(_sdlToEsMapping
+# 改一对一直通 = fallback 产出 A 在南)。所以每次接手都要现场重取 v1.1、别信旧 SHA。
+# (更早的坑：c28dbaa 因简体化 rewrite history 成孤儿远端取不到；一度误 pin 分支 HEAD。)
+PKG_VERSION="49b57295b7fd7656744a98b67b3500bb2c03c100"   # = tag v1.1(2026-07-25 重裁,含手柄 A/B)
 # es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
 # 这一栏写着不存在的分支就直接打断本包的 clone —— 每次 es4all 改名都要同步这里。
 PKG_GIT_CLONE_BRANCH="v1.1-stable"
