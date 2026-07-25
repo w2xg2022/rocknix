@@ -1,3 +1,10 @@
+# 兜底默认映射:SDL2 特殊 GUID "default",本库和上游 DB 都没收录的手柄一律套这条
+# (SDL_gamecontroller.c 的 s_pDefaultMapping,查不到映射时最后才用)。
+# 内容 = MD1000 实机采集的 Xbox 式键位(InputPlumber GameController,按位置对齐):
+# ES 侧 a=btn1 b=btn0 x=btn3 y=btn2、select6/start7/hotkey8、L4/R5、LT=axis2/RT=axis5。
+# ES 会用设备真实 GUID 把它写回 es_input.cfg,所以未知手柄插上即用,不再落到设定精灵。
+# 优先序:es_input.cfg > 本库精确条目 > 上游 DB 精确条目 > 本行 default。
+default,ES4All Generic Gamepad,platform:Linux,a:b0,b:b1,x:b2,y:b3,back:b6,guide:b8,start:b7,leftshoulder:b4,rightshoulder:b5,leftstick:b9,rightstick:b10,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,rightx:a3,righty:a4,lefttrigger:a2,righttrigger:a5,
 1900fcf27a65645f6a6f797374696300,zed_joystick,platform:Linux,x:b2,a:b0,b:b1,y:b3,back:b8,start:b9,dpleft:b15,dpdown:b14,dpright:b16,dpup:b13,leftshoulder:b4,lefttrigger:b6,rightshoulder:b5,righttrigger:b7,leftstick:b11,rightstick:b12,leftx:a0,lefty:a1,rightx:a2,righty:a3,
 03002758091200000031000011010000,OpenSimHardware OSH PB Controller,platform:Linux,x:b2,a:b0,b:b1,y:b3,back:b7,start:b6,dpleft:h0.8,dpdown:h0.4,dpright:h0.2,dpup:h0.1,leftshoulder:b4,lefttrigger:b10,rightshoulder:b5,righttrigger:b11,leftstick:b8,rightstick:b9,leftx:a0,lefty:a1,rightx:a2,righty:a3,
 19000226010000000100000001010000,odroidgo2_joypad,platform:Linux,x:b2,a:b1,b:b0,y:b3,back:b10,start:b13,dpleft:b8,dpdown:b7,dpright:b9,dpup:b6,leftshoulder:b4,lefttrigger:b11,rightshoulder:b5,righttrigger:b12,leftx:a0,lefty:a1,
