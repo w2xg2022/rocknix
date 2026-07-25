@@ -99,6 +99,48 @@ fi
 		sed -i '/^CPUSpeed =/c\CPUSpeed = 0' ${CONF_DIR}/${PPSSPP_INI}
 	fi
 
+#UI 语言跟随 ES(system.language),比照 setsettings.sh 强制 RetroArch 的做法
+# PPSSPP 的语言码 = assets/lang/*.ini 的文件名,与 system.language 基本一致,只有几个别名要转。
+# ★ppsspp.ini 有两行 Language★:[General] 里字母值的是 UI 语言,另一行 `Language = 1` 是模拟的
+#   PSP 主机语言。sed 必须用 [a-zA-Z] 只锁 UI 那行,别误动数字行。
+ESLANG=$(get_setting system.language)
+case "${ESLANG}" in
+  cs_CZ) PPLANG="cz_CZ" ;;
+  en_GB) PPLANG="en_US" ;;
+  es_MX|eu_ES) PPLANG="es_ES" ;;
+  "") PPLANG="zh_CN" ;;
+  *) PPLANG="${ESLANG}" ;;
+esac
+# 没有对应翻译档就退回默认,别写进一个 PPSSPP 不认得的码
+if [ ! -f "${CONF_DIR}/assets/lang/${PPLANG}.ini" ]; then
+  PPLANG="zh_CN"
+fi
+sed -i "/^Language = [a-zA-Z]/c\\Language = ${PPLANG}" ${CONF_DIR}/${PPSSPP_INI}
+echo "UI LANGUAGE set to: ${PPLANG} (from system.language=${ESLANG})"
+
+#Hotkey SELECT+X (呼出菜单) —— 跟 ES 的手柄「印刷布局」走
+# controls.ini 里的 10-188~191 是 SDL GameController 的语意键(Y/A/B/X),位置本来就
+# 跟 ES 对齐(两边都从 gamecontrollerdb 推导),唯独「印着 X 的是哪一颗」只有 ES 知道:
+# ES 的布局侦测(GuiDetectLayout,只按一次 A)把结果写进 es_settings.cfg 的 InvertButtons
+#   false = Xbox 式印刷(A 在南) → 印刷 X 在西 = SDL X = 10-191
+#   true  = 任天堂式印刷(A 在东) → 印刷 X 在北 = SDL Y = 10-188
+# 其余组合键(SELECT+START 退出 / SELECT+R1 存档 / SELECT+L1 读档)与印刷无关,
+# 写死在 controls.ini 模板里,这里不动。
+ES_SETTINGS="/storage/.config/emulationstation/es_settings.cfg"
+CONTROLS_INI="${CONF_DIR}/PSP/SYSTEM/controls.ini"
+if [ -f "${CONTROLS_INI}" ]; then
+  MENU_KEY="10-191"
+  if grep -q '"InvertButtons" value="true"' "${ES_SETTINGS}" 2>/dev/null; then
+    MENU_KEY="10-188"
+  fi
+  if grep -q '^Pause = ' "${CONTROLS_INI}"; then
+    sed -i "/^Pause = /c\\Pause = 10-196:${MENU_KEY}" "${CONTROLS_INI}"
+  else
+    echo "Pause = 10-196:${MENU_KEY}" >>"${CONTROLS_INI}"
+  fi
+  echo "MENU HOTKEY (SELECT+X) set to: 10-196:${MENU_KEY}"
+fi
+
 #Retroachievements
 /usr/bin/cheevos_ppsspp.sh
 

@@ -97,7 +97,20 @@ makeinstall_target() {
     cp ${PKG_DIR}/sources/${DEVICE}/* ${INSTALL}/usr/config/ppsspp/PSP/SYSTEM
   fi
   rm ${INSTALL}/usr/config/ppsspp/assets/gamecontrollerdb.txt
-  ln -sf NotoSansJP-Regular.ttf ${INSTALL}/usr/config/ppsspp/assets/Roboto-Condensed.ttf
+  # UI 字体换成 es4all 自带的雅黑(拉丁 + 简/繁/日 全覆盖),菜单才能显示中文。
+  # 两个必须同时满足,少一个都是方框:
+  # ①★文件名要用底线名 Roboto_Condensed-*.ttf★——PPSSPP 1.20 的 g_fontDescs 载入的是这几个,
+  #   原来那行只 symlink 旧名 Roboto-Condensed.ttf(连字号),是条死链、从来没生效。
+  # ②★字体必须「拉丁 + CJK 同时有」★——PPSSPP 的缺字回退(draw_text_sdl.cpp CheckMissingGlyph)
+  #   是「整串换一支字体」,不是逐字回退。若主字体只有 CJK(如 DroidSansFallbackFull 无 ASCII),
+  #   那「UI大小缩放 (DPI)」这种中英混排就会因 U 缺字整串换成 fontconfig 找到的拉丁字体,
+  #   反而把中文变方框。es4all 的雅黑两边都有,不会触发回退。
+  # 已知限制:雅黑无谚文,韩文菜单仍是方框(与 EmuELEC 同,见 memory ppsspp_cjk_font_emuelec)。
+  ln -sf /usr/config/es4all/fonts/regular.ttf ${INSTALL}/usr/config/ppsspp/assets/Roboto-Condensed.ttf
+  for f in Roboto_Condensed-Regular Roboto_Condensed-Italic Roboto_Condensed-Light; do
+    ln -sf /usr/config/es4all/fonts/regular.ttf ${INSTALL}/usr/config/ppsspp/assets/${f}.ttf
+  done
+  ln -sf /usr/config/es4all/fonts/bold.ttf ${INSTALL}/usr/config/ppsspp/assets/Roboto_Condensed-Bold.ttf
   curl -Lo ${INSTALL}/usr/config/ppsspp/PSP/Cheats/cheat.db https://raw.githubusercontent.com/Saramagrean/CWCheat-Database-Plus-/${CHEAT_DB_VERSION}/cheat.db
 }
 
