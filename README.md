@@ -6,7 +6,8 @@
 
 主力机型：**MD1000（RK3566）**。选择 ROCKNIX 的核心理由是它走 **闭源 libmali + Vulkan** —— 同一颗 Mali-G52，换上 Vulkan 就能把 PSP 跑顺，突破 GLES 天花板。
 
-> ⚠️ 本仓库是 fork，`next` 分支上叠了 MD1000 适配、通用 kernel（RK3566+RK3528）、maxio 千兆网卡修复、ES4All 接线、以及一套**云编译加速 + Release 发布**改造。commit 一律英文（跟随国际上游），README/文档用中文。
+> ⚠️ 本仓库是 fork，`next` 分支上叠了 MD1000 适配、通用 kernel（RK3566+RK3528）、maxio 千兆网卡修复、ES4All 接线、以及一套**云编译加速 + Release 发布**改造。commit 讯息与 README/文档**一律简体中文**（2026-07-21 起；此前跟随国际上游用英文，已改）。
+> 格式惯例：**英文的组件前缀 + 简体正文**，例如 `emulationstation: pin 锚到 tag v1.1`、`CI: 关掉 DEBUG_PACKAGES`、`RK3566: MD1000 启用 AV(3.5mm) 模拟音频`。
 
 ---
 
