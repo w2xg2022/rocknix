@@ -10,7 +10,7 @@ PKG_NAME="emulationstation"
 # InputManager rebuildAllJoysticks，删掉那段 #if WIN32 让 Linux 也剥)、B(_sdlToEsMapping
 # 改一对一直通 = fallback 产出 A 在南)。所以每次接手都要现场重取 v1.1、别信旧 SHA。
 # (更早的坑：c28dbaa 因简体化 rewrite history 成孤儿远端取不到；一度误 pin 分支 HEAD。)
-PKG_VERSION="49b57295b7fd7656744a98b67b3500bb2c03c100"   # = tag v1.1(2026-07-25 重裁,含手柄 A/B)
+PKG_VERSION="22b35d6306e36ba4bd59c3e71cc58c94f19144ec"   # = tag v1.1(2026-07-26 移到此,含选单导航音效)
 # es4all 发 1.1 正式版后把 v1.1-dev 改名成了 v1.1-stable，远端已无 v1.1-dev。
 # 这一栏写着不存在的分支就直接打断本包的 clone —— 每次 es4all 改名都要同步这里。
 PKG_GIT_CLONE_BRANCH="v1.1-stable"
