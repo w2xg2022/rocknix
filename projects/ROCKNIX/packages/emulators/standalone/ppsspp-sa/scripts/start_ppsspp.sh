@@ -118,14 +118,21 @@ fi
 sed -i "/^Language = [a-zA-Z]/c\\Language = ${PPLANG}" ${CONF_DIR}/${PPSSPP_INI}
 echo "UI LANGUAGE set to: ${PPLANG} (from system.language=${ESLANG})"
 
-#Hotkey SELECT+X (呼出菜单) —— 跟 ES 的手柄「印刷布局」走
-# controls.ini 里的 10-188~191 是 SDL GameController 的语意键(Y/A/B/X),位置本来就
-# 跟 ES 对齐(两边都从 gamecontrollerdb 推导),唯独「印着 X 的是哪一颗」只有 ES 知道:
-# ES 的布局侦测(GuiDetectLayout,只按一次 A)把结果写进 es_settings.cfg 的 InvertButtons
+#组合键(和弦) —— ★每次启动都重写,不能只靠 controls.ini 模板★
+#
+# ★为什么必须每次重写★:PPSSPP 在【乾净退出】时会用内存里的映射覆写 controls.ini,
+# 而它不保留 `Exit App` 与 `Save State`/`Load State` 的和弦值,会还原成自己的预设
+# (10-4010 / 10-4008)。实机坐实:全新安装跑一轮后,韧体模板里那三行就没了,
+# 只有 `Pause` 活着 —— 因为下面这段每次启动都把它写回去。
+# ⚠️ 早期误判过「模板复制一次就永久有效」:那次是用 SELECT+START 退出(走 input_sense
+#    的 killall -9),行程被硬杀、PPSSPP 根本没机会写档,所以看起来没被动。
+#
+# 键码说明:10-188~191 是 SDL GameController 的语意键(Y/A/B/X),位置本来就跟 ES 对齐
+# (两边都从 gamecontrollerdb 推导)。唯独「印着 X 的是哪一颗」只有 ES 知道 ——
+# ES 的布局侦测(GuiDetectLayout,只按一次 A)把结果写进 es_settings.cfg 的 InvertButtons:
 #   false = Xbox 式印刷(A 在南) → 印刷 X 在西 = SDL X = 10-191
 #   true  = 任天堂式印刷(A 在东) → 印刷 X 在北 = SDL Y = 10-188
-# 其余组合键(SELECT+START 退出 / SELECT+R1 存档 / SELECT+L1 读档)与印刷无关,
-# 写死在 controls.ini 模板里,这里不动。
+# 其余三组(SELECT+START/R1/L1)与印刷无关,固定值。
 ES_SETTINGS="/storage/.config/emulationstation/es_settings.cfg"
 CONTROLS_INI="${CONF_DIR}/PSP/SYSTEM/controls.ini"
 if [ -f "${CONTROLS_INI}" ]; then
@@ -133,12 +140,19 @@ if [ -f "${CONTROLS_INI}" ]; then
   if grep -q '"InvertButtons" value="true"' "${ES_SETTINGS}" 2>/dev/null; then
     MENU_KEY="10-188"
   fi
-  if grep -q '^Pause = ' "${CONTROLS_INI}"; then
-    sed -i "/^Pause = /c\\Pause = 10-196:${MENU_KEY}" "${CONTROLS_INI}"
-  else
-    echo "Pause = 10-196:${MENU_KEY}" >>"${CONTROLS_INI}"
-  fi
-  echo "MENU HOTKEY (SELECT+X) set to: 10-196:${MENU_KEY}"
+  # 有该行就改、没有就补;键名含空格,sed 的位址要完整比对到 " = "
+  set_chord() {   # $1=键名  $2=值
+    if grep -q "^${1} = " "${CONTROLS_INI}"; then
+      sed -i "/^${1} = /c\\${1} = ${2}" "${CONTROLS_INI}"
+    else
+      echo "${1} = ${2}" >>"${CONTROLS_INI}"
+    fi
+  }
+  set_chord "Exit App"   "10-196:10-197"   # SELECT+START 退出
+  set_chord "Save State" "10-196:10-192"   # SELECT+R1   存档
+  set_chord "Load State" "10-196:10-193"   # SELECT+L1   读档
+  set_chord "Pause"      "10-196:${MENU_KEY}"  # SELECT+X 呼出菜单(跟印刷布局走)
+  echo "PSP HOTKEYS set: exit/save/load fixed, menu(SELECT+X) = 10-196:${MENU_KEY}"
 fi
 
 #Retroachievements
