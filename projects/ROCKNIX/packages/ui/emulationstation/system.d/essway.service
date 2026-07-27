@@ -4,6 +4,17 @@ Description=EmulationStation-with-Sway
 #ConditionPathExists=/var/lock/start.games
 Requires=sway.service
 After=sway.service
+# es4all: 必须等 PulseAudio(pipewire-pulse)就绪再起 ES,否则【音量设定整组会消失】。
+# 链路:ROCKNIX 编译带 -DENABLE_PULSE=1 → VolumeControl::isAvailable() 走 PulseAudio.isReady()
+# (VolumeControl.cpp:690);而 isReady() = mContext && mReady,这两个值在 ES 启动时
+# 【只连一次 pulse 伺服器就定案、不重试】(:48)。GuiMenu 的 VOLUME 整组被 if(isAvailable())
+# 包住(GuiMenu.cpp:4872)→ 连不上就永远不显示,直到 ES 重启。
+# 实机(MD1000)坐实开机时序:essway 07:14:07 / wireplumber 07:14:13 / pipewire-pulse 07:14:14
+# ——ES 早了 7 秒。SDL 音讯后来自己连上所以前端音乐正常,但 VolumeControl 早已失败定案。
+# ★这是竞速、时序会浮动:同一版固件有时有音量有时没有,别误判成「哪次改坏了」★
+# 实机验证:手动 systemctl restart essway(此时 pulse 已就绪)音量组立刻回来。
+Wants=pipewire-pulse.service
+After=pipewire-pulse.service
 
 [Service]
 Type=simple
