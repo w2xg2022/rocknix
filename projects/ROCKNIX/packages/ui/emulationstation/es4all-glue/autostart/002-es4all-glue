@@ -70,10 +70,18 @@ set_kv "${SYS_CFG}" dreamcast.core flycast-sa
 # 6) PSP 独立模拟器手柄（□/△ 与物理位置对齐）
 [ -f "${PSP_CTRL}" ] && [ -f "${GLUE}/controls.ini" ] && cp -f "${GLUE}/controls.ini" "${PSP_CTRL}"
 
-# 7) 手柄 autoconfig 标准对齐（Microsoft X-Box 360 pad；/tmp/joypads 是持久 overlay）
-if [ -d /tmp/joypads ] && [ -f "${GLUE}/Microsoft X-Box 360 pad.cfg" ]; then
-  cp -f "${GLUE}/Microsoft X-Box 360 pad.cfg" "/tmp/joypads/Microsoft X-Box 360 pad.cfg"
-fi
+# 7) ★手柄 autoconfig 已移除 —— 它会盖掉使用者自己跑键位精灵的结果★(2026-08-04)
+#
+# 原本这里每次开机都无条件把固件里一份【写死的】Microsoft X-Box 360 pad.cfg
+# 复制到 /tmp/joypads。当时还没有「精灵 -> 转换器 -> joypad 档」这条链, 只能这样
+# 塞一份对齐好的进去; 链通了之后它就从【补救】变成【破坏】:
+#   实机 2026-08-04(MD1000/ROCKNIX): 使用者跑完精灵、热键正确, 一重开机
+#   /storage/joypads 那份的 md5 就变回出厂值, RA 的组合键跟着全部消失。
+#   而且完全静默 —— 看起来像「设定没存住」, 根本不会想到是开机膠水干的。
+#
+# 与 A 版那份 A/B 互换 remap 同一种病: ★旧补丁在新机制上线后没有撤掉★。
+# 键位现在一律由 es4all-profiles 那条链产生(钩子 10-inputconfig.sh ->
+# es-joypad-evdev.sh, 档名用 udev 名, 编号照抄 es_input.cfg), 这里不该再插手。
 
 # 8) 幂等确保隐藏 pico-8（es_settings 已 seed pico-8;music，这里补防）
 if [ -f "${ES_SETTINGS}" ] && grep -q 'HiddenSystems' "${ES_SETTINGS}" 2>/dev/null \
