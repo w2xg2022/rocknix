@@ -1,0 +1,145 @@
+#==========================================================================
+# Lane P (profiles): bake es4all-profiles into a prebuilt image as a
+# first-boot baseline. No recompiling -- downloads the image, unsquashes
+# SYSTEM, drops the payload into /usr/config, re-squashes (~5 min).
+#
+# Design doc (single source of truth, do NOT restate it here):
+#   https://github.com/w2xg2022/es4all-profiles/blob/main/docs/firmware-injection.md
+#
+# Why a separate lane and not the last step of the build lane: re-running the
+# injection is the thing you want to do most often (every profile change), and
+# folding it into the build would make that mean "rebuild everything".
+#
+# Lanes: A kernel -> build-kernel-image.yml   B ES4All -> build-es-image.yml
+#        C inject -> build-inject-image.yml   D full   -> build-nightly.yml
+#        P profiles -> THIS
+#==========================================================================
+
+name: Inject es4all-profiles into image
+
+on:
+  workflow_dispatch:
+    inputs:
+      BASE_IMAGE_TAG:
+        description: "distribution-cache release tag holding the base image"
+        default: "fastlane-base-RK3566-MD1000"
+        type: string
+      PROFILES_REF:
+        description: "es4all-profiles ref to bake in (branch, tag or SHA)"
+        default: "main"
+        type: string
+      BOARD:
+        description: "board (output image naming only)"
+        default: "rk3566-md1000"
+        type: string
+
+env:
+  PROJECT: ROCKNIX
+  DEVICE: RK3566
+  ARCH: aarch64
+  BOARD: ${{ inputs.BOARD }}
+
+jobs:
+  inject-profiles:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Maximize build space
+        uses: justinthelaw/maximize-github-runner-space@v0.9.0
+        with:
+          skip-components: docker-engine
+
+      - uses: actions/checkout@v6
+
+      - name: Install host tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+
+      - name: Fetch es4all-profiles
+        id: profiles
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ inputs.PROFILES_REF }}" \
+            https://github.com/${{ github.repository_owner }}/es4all-profiles.git profiles \
+            || git clone https://github.com/${{ github.repository_owner }}/es4all-profiles.git profiles
+          cd profiles
+          git checkout -q "${{ inputs.PROFILES_REF }}" 2>/dev/null || true
+          SHA=$(git rev-parse HEAD)
+          VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' manifest.json | head -1)
+          echo "sha=$SHA"     >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "profiles $SHA (manifest version $VER)"
+
+      # The single most valuable check in this whole lane. A payload whose
+      # manifest does not match its files is worse than no payload at all: the
+      # device verifies md5 per file and aborts the WHOLE batch, so one stale
+      # entry silently disables every profile. This has actually happened
+      # (profiles pushed, devices "saw no update" -- manifest was not regenerated).
+      - name: Verify manifest matches the files
+        run: |
+          set -euo pipefail
+          cd profiles
+          sh tools/gen_manifest.sh >/dev/null
+          if ! git diff --quiet -- manifest.json; then
+            echo "::error::manifest.json is stale -- regenerate it in es4all-profiles and push"
+            git --no-pager diff -- manifest.json | head -40
+            exit 1
+          fi
+          echo "manifest OK"
+
+      - name: Download base image
+        run: |
+          set -euo pipefail
+          mkdir -p base
+          URL="https://github.com/${{ github.repository_owner }}/${{ vars.CACHE_REPO || 'distribution-cache' }}/releases/download/${{ inputs.BASE_IMAGE_TAG }}/${{ inputs.BASE_IMAGE_TAG }}.img.gz"
+          curl -L --fail --retry 3 -o "base/base.img.gz" "$URL"
+          ls -la base/
+
+      - name: Inject payload into SYSTEM
+        run: |
+          set -euo pipefail
+          gzip -dc base/base.img.gz > base.img
+          # SYSTEM lives on the first (FAT) partition of the image.
+          LOOP=$(sudo losetup --find --show --partscan base.img)
+          sudo mkdir -p /mnt/flash
+          sudo mount "${LOOP}p1" /mnt/flash
+          sudo unsquashfs -d SYSTEM.d /mnt/flash/SYSTEM
+
+          DEST=SYSTEM.d/usr/config/es4all-profiles
+          sudo rm -rf "$DEST"
+          sudo mkdir -p "$DEST"
+          # tar, not cp -r: preserves the executable bit on bin/*, which is what
+          # makes the scripts runnable at all. (Editing these over a SMB share
+          # strips +x -- that is a separate trap, same consequence.)
+          (cd profiles && tar --exclude-vcs -cf - .) | sudo tar -C "$DEST" -xf -
+          echo "${{ steps.profiles.outputs.version }}" | sudo tee "SYSTEM.d/usr/config/es4all-profiles.version" >/dev/null
+          echo "${{ steps.profiles.outputs.sha }}"     | sudo tee "SYSTEM.d/usr/config/es4all-profiles.sha" >/dev/null
+
+          # Prove it landed. A cp to the wrong path looks exactly like success.
+          echo "### injected profiles" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ref: \`${{ inputs.PROFILES_REF }}\` -> \`${{ steps.profiles.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- manifest version: \`${{ steps.profiles.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- files: \`$(sudo find "$DEST" -type f | wc -l)\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- executables under bin/: \`$(sudo find "$DEST" -path '*/bin/*' -perm -u+x -type f | wc -l)\`" >> "$GITHUB_STEP_SUMMARY"
+          sudo find "$DEST" -maxdepth 1 -mindepth 1 | head -20
+
+          sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1M
+          sudo cp SYSTEM.new /mnt/flash/SYSTEM
+          sync
+          sudo umount /mnt/flash
+          sudo losetup -d "$LOOP"
+
+      - name: Repackage
+        run: |
+          set -euo pipefail
+          OUT="${BOARD}-profiles-$(date -u +%Y%m%d%H%M).img.gz"
+          gzip -c base.img > "$OUT"
+          ls -la "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-with-profiles
+          path: ${{ env.OUT }}
+          retention-days: 7
