@@ -213,8 +213,15 @@ EOF
   # 胶水资产（虚拟键盘脚本、PSP controls、X360 autoconfig），hook 从 /usr/config/es4all 读
   mkdir -p ${INSTALL}/usr/config/es4all
   cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/es4all-vkbd.py ${INSTALL}/usr/config/es4all/
-  cp -f ${PKG_BUILD}/dist/rocknix/deploy/assets/controls.ini ${INSTALL}/usr/config/es4all/
-  cp -f "${PKG_BUILD}/dist/rocknix/deploy/assets/Microsoft X-Box 360 pad.cfg" ${INSTALL}/usr/config/es4all/
+  # NOTE(w2xg2022 2026-08-04): ★手柄资料档不再从这里装 —— 已交给 es4all-profiles★
+  #   es4all 的 0d0abd7「手柄资料档移出 dist 交给 profiles」把 controls.ini 与
+  #   Microsoft X-Box 360 pad.cfg 从 dist/ 删掉了, 这两行於是 cp 一个不存在的档、
+  #   整个 makeinstall_target 失败(实机: 云编译 30933303280 挂在 446/447)。
+  #
+  #   ⚠️ 这是【同一个变更只做了一半】: 那两个档现在由键位精灵产生(精灵 -> 转换器 ->
+  #      joypad 档 / controls.ini), 固件本来就不该再塞一份写死的进去 ——
+  #      本树的 002-es4all-glue 里那两段开机复制也是同一天因为同一个理由删掉的
+  #      (它每次开机会把使用者跑精灵的结果盖回出厂值)。膠水那半做了, 这半漏了。
 
   # es4all: RetroArch 中文字体(含 CJK 字形)。RA 内建 xmb 字体无 CJK -> 中文显示方块(tofu);
   # 开机胶水把 xmb_font / video_font_path 指向这里。字体源自 es4all-1key。
