@@ -169,6 +169,16 @@ if [ -f "${CONTROLS_INI}" ]; then
   set_chord "Load State" "10-196:10-193"   # SELECT+L1   读档
   set_chord "Pause"      "10-196:${MENU_KEY}"  # SELECT+X 呼出菜单(跟印刷布局走)
   echo "PSP HOTKEYS set: exit/save/load fixed, menu(SELECT+X) = 10-196:${MENU_KEY}"
+
+  # ★热键改从键位精灵透传 —— 上面那套写死的只当保底★(2026-08-04)
+  #   上面写死 10-196(=SDL BACK) 当修饰键, 隐含假设「使用者的热键一定是 SELECT」。
+  #   PPSSPP 吃的是 device-10 的 SDL 语意码, 而 es_input.cfg 记的是实体按键编号,
+  #   中间要查 gamecontrollerdb 才能把 b7 翻成 back -> 10-196 —— 这段逻辑放在
+  #   es4all-profiles(psp-hotkeys.sh), 与 EmuELEC 侧 ppsspp.sh 同一套, 三边一致。
+  #   ⚠️ 别拿产出的值当透传生效的证据: 保底值(10-196)常与实际热键撞成同值,
+  #      输出与成功时逐字节相同 —— 要看它印出来的那行 log。
+  #   没装 profiles 的机器什么都不会发生, 维持上面的行为。
+  [ -x /storage/.config/es4all/bin/psp-hotkeys.sh ] && sh /storage/.config/es4all/bin/psp-hotkeys.sh
 fi
 
 #Retroachievements
