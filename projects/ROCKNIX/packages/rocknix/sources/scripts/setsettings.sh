@@ -883,15 +883,15 @@ function set_position_remap() {
     RMPFILE="${RMPDIR}/${CORENAME}.rmp"
     mkdir -p "${RMPDIR}"
     # 幂等：先删掉本函数上次写入的标记块(防重复叠加)，保留该核心原有的其它 remap 行。
-    if [ -f "${RMPFILE}" ]; then
-        sed -i '/# es4all-position-align/d; /^input_player1_btn_a = "0"$/d; /^input_player1_btn_b = "8"$/d' "${RMPFILE}"
-    fi
-    {
-        echo '# es4all-position-align'
-        echo 'input_player1_btn_a = "0"'
-        echo 'input_player1_btn_b = "8"'
-    } >> "${RMPFILE}"
 }
+
+# ★A/B 位置对齐 remap 已移除★(2026-08-04)
+#   原本这里每次启动游戏都往 <核心>.rmp 补写 input_player1_btn_a="0" / btn_b="8",
+#   把 A/B 翻过来。当年那是必要的: joypad autoconfig 还是发行版出厂那份(A 绑在南),
+#   得靠这层翻转才对得上实体位置。
+#   现在键位一律由键位精灵产生(es-joypad-evdev.sh), 那份【本身就按位置对齐】,
+#   两层一叠就翻回去 —— 实机 2026-08-04 坐实: 游戏内 A/B 整个反了。
+#   与膠水那份写死的 joypad cfg 同一种病: 旧补丁在新机制上线后没有撤掉。
 
 function set_tatemode() {
     log "Setup tate mode..."
@@ -934,15 +934,6 @@ function set_tatemode() {
         # MAME 永远没有位置对齐、A/B 不翻(按印刷 B 跳跃却要按 A)。故在 TATE 处理后由本
         # 函数统一补写，两种模式都有。TATE 档只改方向键与摇杆、无 btn_a/btn_b，不冲突。
         local MAME2003RMP="${MAME2003REMAPDIR}/MAME 2003-Plus.rmp"
-        if [ -f "${MAME2003RMP}" ]
-        then
-            sed -i '/# es4all-position-align/d; /^input_player1_btn_a = "0"$/d; /^input_player1_btn_b = "8"$/d' "${MAME2003RMP}"
-        fi
-        {
-            echo '# es4all-position-align'
-            echo 'input_player1_btn_a = "0"'
-            echo 'input_player1_btn_b = "8"'
-        } >> "${MAME2003RMP}"
     fi
 }
 

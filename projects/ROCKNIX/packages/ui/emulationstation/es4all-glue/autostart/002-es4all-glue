@@ -67,8 +67,11 @@ set_kv "${SYS_CFG}" psp.core ppsspp-sa
 set_kv "${SYS_CFG}" dreamcast.emulator flycast
 set_kv "${SYS_CFG}" dreamcast.core flycast-sa
 
-# 6) PSP 独立模拟器手柄（□/△ 与物理位置对齐）
-[ -f "${PSP_CTRL}" ] && [ -f "${GLUE}/controls.ini" ] && cp -f "${GLUE}/controls.ini" "${PSP_CTRL}"
+# 6) ★PSP 独立模拟器手柄已移除 —— 同 7) 的理由★(2026-08-04)
+#   那份写死的 controls.ini 的 Select=10-196 / Start=10-197(按钮 8/9)是照【某一颗
+#   手柄】量出来的, 换一颗就整个错位 —— 实机这颗精灵记的是 select=7 / start=6,
+#   SELECT/START 在 PSP 里完全没反应, 而且不会有任何提示。
+#   现在改由 es-ppsspp-controls.sh 从 es_input.cfg 翻译(面键按位置、热键按印刷)。
 
 # 7) ★手柄 autoconfig 已移除 —— 它会盖掉使用者自己跑键位精灵的结果★(2026-08-04)
 #
