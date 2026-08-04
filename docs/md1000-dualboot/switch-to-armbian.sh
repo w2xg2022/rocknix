@@ -1,33 +1,44 @@
 #!/bin/sh
-# ROCKNIX -> 下次开机回 eMMC Armbian
-# 原理：移除 eMMC boot 分区上的 rocknix/TRIGGER，boot.scr 找不到它就走 Armbian
+# ROCKNIX -> boot back into Armbian on eMMC.
+#
+# All this does is remove rocknix/TRIGGER from the eMMC boot partition. Without
+# that file the u-boot script skips the chainload block and Armbian boots as
+# usual.
+#
+# Why it has to run from Linux: u-boot can test for the file but cannot delete
+# it (no ext4 write support in this build). ROCKNIX, being a full Linux, has no
+# such problem.
+#
+# IMPORTANT: ROCKNIX's /usr is a read-only squashfs. Save this script to
+# /storage (writable and persistent) before running it.
 set -e
 
+EMMC_BOOT_DEV="${EMMC_BOOT_DEV:-/dev/mmcblk0p1}"
 M=/tmp/emmcboot
 MOUNTED_BY_US=0
 
 mkdir -p "$M"
 if ! mountpoint -q "$M" 2>/dev/null && ! grep -q " $M " /proc/mounts; then
-  mount /dev/mmcblk0p1 "$M"
+  mount "${EMMC_BOOT_DEV}" "$M"
   MOUNTED_BY_US=1
 fi
 
 if [ -e "$M/rocknix/TRIGGER" ]; then
   rm -f "$M/rocknix/TRIGGER"
-  echo "已移除 TRIGGER，下次开机 -> Armbian (eMMC)"
+  echo "TRIGGER removed. Next boot goes to Armbian (eMMC)."
 else
-  echo "TRIGGER 本就不存在，下次开机 -> Armbian (eMMC)"
+  echo "TRIGGER was not present. Next boot goes to Armbian (eMMC)."
 fi
+
 sync
 
-# ★umount 失败不能挡住 reboot★
-#   TRIGGER 此时【已经删掉】，切换其实已经成立；若因为目录被别人占用而 umount 失败，
-#   set -e 会让脚本停在这里，使用者看到的是「按了没反应」，还以为切换没生效。
-#   只卸载我们自己挂的那次，别去动别人已经挂好的。
+# A failed umount must NOT stop the reboot. By this point TRIGGER is already
+# gone, so the switch has effectively happened; letting set -e abort here only
+# makes it look like nothing happened. Unmount just what we mounted ourselves.
 if [ "$MOUNTED_BY_US" = "1" ]; then
-  umount "$M" 2>/dev/null || echo "注意：$M 卸载失败（不影响切换，TRIGGER 已移除）"
+  umount "$M" 2>/dev/null || echo "Note: could not unmount $M (harmless, TRIGGER is already removed)."
 fi
 
-echo "3 秒后重启..."
+echo "Rebooting in 3 seconds..."
 sleep 3
 reboot
