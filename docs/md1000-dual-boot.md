@@ -2,11 +2,14 @@
 
 MD1000（RK3566）的[缝合方案](../README.md#-支持机型)：**eMMC 装 Armbian、U 盘装 ROCKNIX**，eMMC 的 vendor u-boot（DRAM 已校准，保开机）用 `booti` 链载 ROCKNIX 内核。一个 **TRIGGER 档**决定这次开哪个系统，两边都能一键互切。
 
+> ★脚本本身（`md1000-dualboot/` 底下那几个档）的注释与萤幕输出一律为英文★，
+> 因为它们面向上游与其它 RK 机型的使用者。本文是那份配方的简体中文说明。
+
 ## 原理
 
 eMMC 的 `/boot/boot.cmd`（u-boot 脚本）开机时先检查 eMMC boot 分区上的 `rocknix/TRIGGER`：
 
-- **有 TRIGGER** → 载入 eMMC 的 `rocknix/Image` + dtb，`booti` 链载 ROCKNIX（rootfs 从 U 盘 `LABEL=ROCKNIX` / `STORAGE`）。
+- **有 TRIGGER** → 载入 eMMC 的 `rocknix/KERNEL` + `rocknix/dtb`，`booti` 链载 ROCKNIX（rootfs 从 U 盘 `LABEL=ROCKNIX` / `STORAGE`）。
 - **没 TRIGGER**（或没插 U 盘导致 booti 失败）→ 落回 Armbian。**保底：绝不变砖。**
 
 > **为什么用 booti 不用 kexec**：kexec 会把 GPU/显示留成脏状态，ROCKNIX 到 sway 初始化 DRM 时整台硬冻结（黑屏）。booti 由 u-boot 干净初始化硬件，是唯一验证过能跑的路径。
@@ -42,6 +45,14 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 脚本会挂载 eMMC boot 分区（`/dev/mmcblk0p1`）、`rm rocknix/TRIGGER`、然后 `reboot`。
 （ROCKNIX 是 Linux、有完整 eMMC 存取，所以能删掉 eMMC 上的 TRIGGER；u-boot 才受 USB / ext4write 限制。存 `/storage` 后下次不用再下载，直接 `sh /storage/switch-to-armbian.sh`。）
 
+## 已经装过旧版的机器会自动升级
+
+旧版链载块写的是机型专属的 `rocknix/rk3566-md1000.dtb`，还带着 `console=tty0`
+（fbcon 占住 framebuffer，模拟器起停时主控台文字会闪到画面上）与除错用的
+`systemd.debug_shell`。再跑一次 `switch-to-rocknix.sh` 就会侦测到并升级 ——
+它会先还原 `/boot/boot.cmd.armbian-orig` 再插入现行块（免得叠成两个），
+顺手清掉旧档名。看到 `== Upgrading an outdated chainload block ==` 就是在做这件事。
+
 ## TRIGGER 是常驻的，不是一次性的
 
 u-boot 只【读】TRIGGER、不删它。所以放下去之后**每次开机都进 ROCKNIX**，
@@ -65,8 +76,8 @@ u-boot 只【读】TRIGGER、不删它。所以放下去之后**每次开机都�
 u-boot 从 eMMC 只读这两个：
 
 ```
-/boot/rocknix/Image               内核映像 —— initramfs 就包在里面
-/boot/rocknix/rk3566-md1000.dtb   设备树，档名要跟链载块里写的一致
+/boot/rocknix/KERNEL   内核映像 —— initramfs 就包在里面
+/boot/rocknix/dtb      设备树，固定用这个档名存放
 ```
 
 其余一概不需要：`SYSTEM`、`oemsplash-*.png`、`*.md5` 全都是 initramfs 起来之后从
@@ -79,7 +90,7 @@ u-boot 从 eMMC 只读这两个：
 
 这是整套设计必须防的坑。链载读的是 **eMMC** 上那份，而刷新映像只换掉 **U 盘** 上那份，
 两者没有任何东西会自动配对。结果是 `/etc/os-release` 显示新版本、实际跑的却是旧内核 ——
-而且因为 **initramfs 包在 Image 里面**，内核层与 initramfs 层的修改会全部静默失效，
+而且因为 **initramfs 包在 KERNEL 里面**，内核层与 initramfs 层的修改会全部静默失效，
 看起来就像「你的修正没生效」。
 
 2026-07-23 实机就是这样被坑：AV 的 dts 明明是对的、新固件里的 dtb 也确实含修正，
@@ -116,8 +127,10 @@ u-boot 从 eMMC 只读这两个：
    插到 `/boot/boot.cmd` 第一处 `setenv load_addr` **之前**，用
    `mkimage -C none -A arm -T script -n 'flatmax load script' -d /boot/boot.cmd /boot/boot.scr` 重编。
    （需要 `mkimage`；Armbian 上 `apt-get install -y u-boot-tools`）
-3. 从 U 盘 ROCKNIX 分区把 `KERNEL` + `device_trees/rk3566-md1000.dtb` 复制到 eMMC 的
-   `/boot/rocknix/Image` 与 `/boot/rocknix/rk3566-md1000.dtb`。
+3. 从 U 盘 ROCKNIX 分区把 `KERNEL` + `device_trees/<板子>.dtb` 复制到 eMMC 的
+   `/boot/rocknix/KERNEL` 与 `/boot/rocknix/dtb`。
+   ★dtb 一律存成固定档名 `dtb`★ —— 链载块因此不必知道这块板子的 dtb 叫什么，
+   换板子、换映像都不用改 boot.cmd。
    （u-boot 读不到 USB，内核/dtb 必须放 eMMC；U 盘只当 rootfs，ROCKNIX 内核起来后用 Linux 完整 USB3 驱动挂 SYSTEM）
 
 ## 保底 / 救援
