@@ -43,7 +43,18 @@ if [ ! "${OPENGLES_SUPPORT}" = no ]; then
   PKG_CMAKE_OPTS_TARGET+=" -DGLES2=1"
 fi
 
+# NOTE(w2xg2022 2026-08-04): ★-DENABLE_EMUELEC=1 必须在【这里】—— 这份才是权威★
+#   少了它不会警告, 而是【换掉整个前端】: 主选单、键位精灵用的表、网路/蓝牙选单、
+#   外部挂载入口, 全都在 _ENABLEEMUELEC 底下。
+#   ⚠️ 它长期只存在於三份【非权威】的地方 —— es4all 的 dist/rocknix/package.mk(参考副本)、
+#      es4all-cross/cross-build.sh、以及 es4all 的 CI —— 唯独本档(云编译真正用的)没有。
+#      於是本机与 CI 编出来的 ES 跟【固件里烤的那份不是同一个前端】, 而且完全静默:
+#      不报错、不警告, 只是少了半个介面。
+#   2026-08-04 v1.2 才因为编不过而暴露(openExternalMounts 声明在 _ENABLEEMUELEC 里):
+#      GuiMenu.cpp:5297: error: 'openExternalMounts' was not declared in this scope
+#   —— 是新功能替我们把一个既存的分岔照了出来, 不是新功能引进的问题。
 PKG_CMAKE_OPTS_TARGET+=" -DES4ALL_TARGET=rocknix \
+                         -DENABLE_EMUELEC=1 \
                          -DROCKNIX=1 \
                          -DDISABLE_KODI=1 \
                          -DENABLE_FILEMANAGER=0 \
