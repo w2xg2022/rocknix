@@ -2,10 +2,9 @@ setenv rocknix_kernel_addr "0x02080000"
 setenv rocknix_fdt_addr "0x08300000"
 if test -e ${devtype} ${devnum} rocknix/TRIGGER; then
 	echo "=== ROCKNIX chainload triggered ==="
-	load ${devtype} ${devnum} ${rocknix_kernel_addr} rocknix/Image
-	load ${devtype} ${devnum} ${rocknix_fdt_addr} rocknix/rk3566-md1000.dtb
-	setenv bootargs "boot=LABEL=ROCKNIX disk=LABEL=STORAGE quiet console=ttyS2,1500000 console=tty0 systemd.debug_shell=ttyS2"
+	load ${devtype} ${devnum} ${rocknix_kernel_addr} rocknix/KERNEL
+	load ${devtype} ${devnum} ${rocknix_fdt_addr} rocknix/dtb
+	setenv bootargs "boot=LABEL=ROCKNIX disk=LABEL=STORAGE quiet console=ttyS2,1500000"
 	booti ${rocknix_kernel_addr} - ${rocknix_fdt_addr}
 	echo "=== ROCKNIX booti failed, falling back to Armbian ==="
 fi
-

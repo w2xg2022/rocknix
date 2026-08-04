@@ -20,10 +20,14 @@ eMMC 的 `/boot/boot.cmd`（u-boot 脚本）开机时先检查 eMMC boot 分区�
 在 **Armbian**（`root` / `1234`，需联网、U 盘要插着）里跑：
 
 ```bash
-curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dualboot/switch-to-rocknix.sh | bash
+curl -fsSL https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dualboot/switch-to-rocknix.sh -o /tmp/switch-to-rocknix.sh && sh /tmp/switch-to-rocknix.sh
 ```
 
-> 没 `curl` 就用 `wget`：`wget -qO- <同一网址> | bash`
+> 没 `curl` 就用 `wget`：`wget -O /tmp/switch-to-rocknix.sh <同一网址> && sh /tmp/switch-to-rocknix.sh`
+>
+> ★先下载再执行, 别用 `curl | sh`★：管线执行看不到脚本的错误输出、失败了也不能原地重跑，
+> 而且脚本内部呼叫的 helper 会继承那条管线当 stdin —— 一旦它读走 stdin，剩下的脚本内容就没了，
+> 表现是「跑到一半安静结束、什么都没发生」。
 
 **首次运行会自动完成一次性安装** —— 见[首次运行装了什么](#首次运行装了什么)。之后每次跑就只是「同步 payload、放 TRIGGER、重开」。
 
@@ -37,6 +41,15 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 
 脚本会挂载 eMMC boot 分区（`/dev/mmcblk0p1`）、`rm rocknix/TRIGGER`、然后 `reboot`。
 （ROCKNIX 是 Linux、有完整 eMMC 存取，所以能删掉 eMMC 上的 TRIGGER；u-boot 才受 USB / ext4write 限制。存 `/storage` 后下次不用再下载，直接 `sh /storage/switch-to-armbian.sh`。）
+
+## TRIGGER 是常驻的，不是一次性的
+
+u-boot 只【读】TRIGGER、不删它。所以放下去之后**每次开机都进 ROCKNIX**，
+直到你在 ROCKNIX 里跑 `switch-to-armbian.sh` 把它删掉为止。
+
+这是刻意的：万一 ROCKNIX 那边出问题，机器不会「重开一次就莫名其妙回到 Armbian」，
+你能靠开机结果本身判断是哪个系统在跑 —— MD1000 的 u-boot 不往 HDMI 输出，
+看不到任何开机讯息，这一点尤其重要。
 
 ## 装成常驻命令（可选）
 
