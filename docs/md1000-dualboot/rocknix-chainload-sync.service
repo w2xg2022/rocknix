@@ -1,0 +1,31 @@
+[Unit]
+# 让 eMMC 上的链载 payload(Image + dtb)跟 U 盘 ROCKNIX 保持一致,
+# 这样 Armbian 永远不会把一颗过期的内核交给 u-boot。
+#
+# 一个 Armbian session 里【跑两次】,而且两次都有意义:
+#
+#   ExecStart —— 开机时。涵盖「关机期间 U 盘被换掉或重刷了」。
+#   ExecStop  —— 关机/重开时。★这次才是关键★:惯用流程是
+#                「开 Armbian → 写新映像到 U 盘 → 重开进 ROCKNIX」,
+#                只在开机同步的话,那次同步发生在写映像【之前】,必然漏掉。
+#
+# 失败刻意设成不致命:没插 U 盘就只是没东西要同步,绝不能因此卡住开机或关机。
+Description=Sync ROCKNIX chainload payload (Image + dtb) to eMMC
+DefaultDependencies=no
+After=local-fs.target
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 开机时等 USB 列举完;少了这个,第一次跑可能在 U 盘出现之前就结束了。
+Environment=USB_WAIT_TRIES=10
+ExecStart=/usr/local/sbin/rocknix-chainload-sync.sh
+ExecStop=/usr/local/sbin/rocknix-chainload-sync.sh
+SuccessExitStatus=0 1
+TimeoutStartSec=60
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

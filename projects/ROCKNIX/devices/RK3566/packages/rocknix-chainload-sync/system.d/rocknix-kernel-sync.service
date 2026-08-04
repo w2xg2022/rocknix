@@ -1,0 +1,14 @@
+[Unit]
+# 从 ROCKNIX 这一侧把 eMMC 的链载 payload(Image + dtb)同步成 U 盘上这一份。
+# 只要进过一次 ROCKNIX,之后刷映像就会自愈,不必记得回 Armbian 跑 switch-to-rocknix.sh。
+# 不是链载机型的话脚本会自己判断并直接退出。
+Description=Sync chainload Image/dtb from /flash to eMMC
+After=rocknix.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/rocknix-kernel-sync.sh
+
+[Install]
+WantedBy=rocknix.target

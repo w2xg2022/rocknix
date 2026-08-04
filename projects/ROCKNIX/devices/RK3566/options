@@ -76,7 +76,9 @@
     FIRMWARE=""
 
   # Additional packages to install
-    ADDITIONAL_PACKAGES="libmali libmali-vulkan"
+  # rocknix-chainload-sync:链载机型(MD1000)自愈同步 eMMC 上的 Image/dtb。
+  # 非链载机型(RGB20Pro 等)执行期会判断出来直接退出,是纯 no-op。
+    ADDITIONAL_PACKAGES="libmali libmali-vulkan rocknix-chainload-sync"
     ADDITIONAL_PACKAGES_32BIT="libmali"
 
   # Debug tty path

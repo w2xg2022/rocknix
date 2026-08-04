@@ -25,7 +25,7 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 
 > 没 `curl` 就用 `wget`：`wget -qO- <同一网址> | bash`
 
-**首次运行会自动完成一次性安装**——检测到 `/boot/rocknix/` 缺内核或 `boot.cmd` 没链载块时，脚本会：① 从 U 盘把 `KERNEL` + `rk3566-md1000.dtb` 铺到 eMMC `/boot/rocknix/`；② 往 `/boot/boot.cmd` 插链载块、重编 `boot.scr`（自动备份 `*.armbian-orig`）。装好后再 `touch TRIGGER` + `reboot`。之后每次跑就是纯切换。
+**首次运行会自动完成一次性安装** —— 见[首次运行装了什么](#首次运行装了什么)。之后每次跑就只是「同步 payload、放 TRIGGER、重开」。
 
 ### ◀ U 盘 ROCKNIX → eMMC Armbian
 
@@ -47,19 +47,65 @@ curl -L https://raw.githubusercontent.com/w2xg2022/rocknix/next/docs/md1000-dual
 | [`switch-to-rocknix.sh`](md1000-dualboot/switch-to-rocknix.sh) | **Armbian** | `/usr/local/sbin/`（Armbian rootfs 可写） | `switch-to-rocknix.sh` |
 | [`switch-to-armbian.sh`](md1000-dualboot/switch-to-armbian.sh) | **ROCKNIX** | `/storage/`（`/usr` 只读，必须放这） | `sh /storage/switch-to-armbian.sh` |
 
-## 首次安装做了什么（原理，脚本已自动完成）
+## 链载需要的配套档就只有两个
 
-`switch-to-rocknix.sh` 首次运行时自动做以下几步，一般无需手动：
+u-boot 从 eMMC 只读这两个：
 
-1. 从 U 盘 ROCKNIX 分区把 `KERNEL` + `device_trees/rk3566-md1000.dtb` 复制到 eMMC 的
+```
+/boot/rocknix/Image               内核映像 —— initramfs 就包在里面
+/boot/rocknix/rk3566-md1000.dtb   设备树，档名要跟链载块里写的一致
+```
+
+其余一概不需要：`SYSTEM`、`oemsplash-*.png`、`*.md5` 全都是 initramfs 起来之后从
+`/flash`（也就是 U 盘本身）读的，那时内核早就跑起来了。
+
+> U 盘上的 dtb 在 boot 分区的 **`device_trees/` 子目录**底下。
+> ★EmuELEC 是放在根目录，别把那边的假设搬过来★。
+
+## ★刷了新映像却还在跑旧内核★
+
+这是整套设计必须防的坑。链载读的是 **eMMC** 上那份，而刷新映像只换掉 **U 盘** 上那份，
+两者没有任何东西会自动配对。结果是 `/etc/os-release` 显示新版本、实际跑的却是旧内核 ——
+而且因为 **initramfs 包在 Image 里面**，内核层与 initramfs 层的修改会全部静默失效，
+看起来就像「你的修正没生效」。
+
+2026-07-23 实机就是这样被坑：AV 的 dts 明明是对的、新固件里的 dtb 也确实含修正，
+但 `/proc/device-tree` 是旧的（12 组 pinctrl、无 `rk809-sound`），白白怀疑了好几轮。
+
+三道防线，按触发顺序：
+
+1. **Armbian 上的 [`rocknix-chainload-sync.service`](md1000-dualboot/rocknix-chainload-sync.service)**
+   （由 `switch-to-rocknix.sh` 装）。**开机与关机各跑一次**。★关机那次才是关键★：
+   惯用流程是「开 Armbian → 写新映像到 U 盘 → 重开进 ROCKNIX」，只在开机同步的话，
+   那次同步发生在写映像**之前**，必然漏掉。
+2. **`switch-to-rocknix.sh` 每次运行都同步**，不是只在 eMMC 上还没副本时才做。
+3. **ROCKNIX 里的 `rocknix-kernel-sync.service`**
+   （`projects/ROCKNIX/devices/RK3566/packages/rocknix-chainload-sync/`）从另一边做同样的事，
+   所以只要进过一次 ROCKNIX，之后刷映像就会自愈。日志在
+   `/storage/.config/logs/kernel-sync.log`。
+   （同 DEVICE 底下那些掌机没有 eMMC payload，脚本执行期判断得出来，是纯 no-op。）
+
+> 判定一律用 **md5，绝不用时间戳** —— 时间戳会被 FAT 分区、时区处理、以及映像的写入
+> 方式弄失真。手工核对：`md5sum /flash/KERNEL` 与 eMMC 上那份比一比。
+
+> **同步完要下次开机才生效** —— u-boot 早在任何同步发生之前就已经载入旧内核了。
+> 所以刷完新映像要**重开两次**。★验证内核层的修改时，第一件事永远是先确认自己跑的是
+> 哪一颗★：`uname -a`（看建置时间戳，不是只看版本号）。
+
+## 首次运行装了什么
+
+`switch-to-rocknix.sh` 首次执行时自动做以下几步，一般无需手动：
+
+1. 把 [`rocknix-chainload-sync.sh`](md1000-dualboot/rocknix-chainload-sync.sh) 装到
+   `/usr/local/sbin/`，并启用
+   [`rocknix-chainload-sync.service`](md1000-dualboot/rocknix-chainload-sync.service)。
+2. 备份 `boot.cmd` / `boot.scr` 为 `*.armbian-orig`，把 [`boot-rocknix-block.txt`](md1000-dualboot/boot-rocknix-block.txt)
+   插到 `/boot/boot.cmd` 第一处 `setenv load_addr` **之前**，用
+   `mkimage -C none -A arm -T script -n 'flatmax load script' -d /boot/boot.cmd /boot/boot.scr` 重编。
+   （需要 `mkimage`；Armbian 上 `apt-get install -y u-boot-tools`）
+3. 从 U 盘 ROCKNIX 分区把 `KERNEL` + `device_trees/rk3566-md1000.dtb` 复制到 eMMC 的
    `/boot/rocknix/Image` 与 `/boot/rocknix/rk3566-md1000.dtb`。
    （u-boot 读不到 USB，内核/dtb 必须放 eMMC；U 盘只当 rootfs，ROCKNIX 内核起来后用 Linux 完整 USB3 驱动挂 SYSTEM）
-2. 备份 `boot.cmd` / `boot.scr` 为 `*.armbian-orig`，把 [`boot-rocknix-block.txt`](md1000-dualboot/boot-rocknix-block.txt)
-   插到 `/boot/boot.cmd` 的 `setenv load_addr` 那行**之前**，用
-   `mkimage -C none -A arm -T script -d /boot/boot.cmd /boot/boot.scr` 重编。
-   （需要 `mkimage`；Armbian 上 `apt-get install -y u-boot-tools`）
-
-> **每换新 ROCKNIX 映像**后，把 U 盘的 `KERNEL` 重新铺到 eMMC `/boot/rocknix/Image`（保持 kernel 与 U 盘 SYSTEM 配对）。再跑一次 `switch-to-rocknix.sh` 即可（它会覆盖旧的）。
 
 ## 保底 / 救援
 
