@@ -118,6 +118,22 @@ fi
 sed -i "/^Language = [a-zA-Z]/c\\Language = ${PPLANG}" ${CONF_DIR}/${PPSSPP_INI}
 echo "UI LANGUAGE set to: ${PPLANG} (from system.language=${ESLANG})"
 
+# ★SELECT / START 从键位精灵透传 —— 唯一的槓桿是 SDL 的对照表★
+#
+# PPSSPP 走 SDL GameController API: 它拿到的是 BACK / START / A / B 这种【语意名】,
+# 哪一颗实体键算 BACK 由 gamecontrollerdb 决定, 与 ES、与使用者按了什么无关。
+# 所以改 controls.ini 里的数字是改不动 SELECT/START 的(那份记的是语意码)。
+#
+# 实机(MD1000 2026-08-04): SDL 内建的 xpad 对照是 back:b6 start:b7, 而精灵记的是
+# select=7 start=6 —— 正好相反, 於是 PSP 里两颗键的行为跟使用者设的是反的。
+# 而「哪一颗算 SELECT」本来就没有客观答案(任天堂式手柄上是「−」与「+」),
+# 只有使用者的选择算数。
+#
+# es4all-profiles 的 controls-changed 钩子会把精灵的结果写成一行 SDL 对照,
+# 有就用, 没有就维持 SDL 内建表(没跑过精灵的机器行为不变)。
+ES4ALL_GCDB="/storage/.config/es4all/gamecontrollerdb.txt"
+[ -f "${ES4ALL_GCDB}" ] && export SDL_GAMECONTROLLERCONFIG_FILE="${ES4ALL_GCDB}"
+
 #组合键(和弦) —— ★每次启动都重写,不能只靠 controls.ini 模板★
 #
 # ★为什么必须每次重写★:PPSSPP 在【乾净退出】时会用内存里的映射覆写 controls.ini,

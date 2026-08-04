@@ -67,11 +67,17 @@ set_kv "${SYS_CFG}" psp.core ppsspp-sa
 set_kv "${SYS_CFG}" dreamcast.emulator flycast
 set_kv "${SYS_CFG}" dreamcast.core flycast-sa
 
-# 6) ★PSP 独立模拟器手柄已移除 —— 同 7) 的理由★(2026-08-04)
-#   那份写死的 controls.ini 的 Select=10-196 / Start=10-197(按钮 8/9)是照【某一颗
-#   手柄】量出来的, 换一颗就整个错位 —— 实机这颗精灵记的是 select=7 / start=6,
-#   SELECT/START 在 PSP 里完全没反应, 而且不会有任何提示。
-#   现在改由 es-ppsspp-controls.sh 从 es_input.cfg 翻译(面键按位置、热键按印刷)。
+# 6) PSP 独立模拟器手柄（□/△ 与物理位置对齐）
+#
+# ★这份档是对的, 别再拿「按钮编号」去重算它★(2026-08-04 我判断错过一次)
+#   controls.ini 记的不是原始按钮编号, 是 PPSSPP 的【语意码】: 10-188 是
+#   NKCODE_BUTTON_1 = SDL 的 Y(北), 不是「按钮 0」。所以
+#       Cross=189 Circle=190 Square=191 Triangle=188
+#   换算成语意正好是 A(南)/B(东)/X(西)/Y(北) —— 本来就按位置对齐。
+#   同理 Select=10-196 是 SDL BACK 的语意码, ★改这个数字改不动是哪一颗实体键★:
+#   那由 SDL 的 gamecontrollerdb 决定。要让 SELECT/START 跟着键位精灵走, 得覆盖
+#   SDL 的对照表(见下方 SDL_GAMECONTROLLERCONFIG_FILE), 不是改这份档。
+[ -f "${PSP_CTRL}" ] && [ -f "${GLUE}/controls.ini" ] && cp -f "${GLUE}/controls.ini" "${PSP_CTRL}"
 
 # 7) ★手柄 autoconfig 已移除 —— 它会盖掉使用者自己跑键位精灵的结果★(2026-08-04)
 #
