@@ -29,13 +29,18 @@ then
   amixer -c ${ALSA_PRIMARY_CARD:-0} cset name="${DEVICE_PLAYBACK_PATH}" ${DEVICE_PLAYBACK_PATH_SPK} 2>/dev/null
 fi
 
+# DEVICE_VOLUME is the device's DEFAULT volume, so it may only apply when the
+# user has no saved setting yet.
+#
+# It used to sit in the `elif`, which inverted that: the default was only
+# consulted when audio.volume WAS set, and then it overwrote it -- on every
+# boot. A device declaring DEVICE_VOLUME therefore made the volume slider
+# pointless, since the value was reset at each start. Nothing else reads
+# DEVICE_VOLUME, so this branch was the whole feature.
 VOLUME=$(get_setting audio.volume)
-if [ -z ${VOLUME} ]
+if [ -z "${VOLUME}" ]
 then
-  VOLUME="60"
-elif [ -n "${DEVICE_VOLUME}" ]
-then
-  VOLUME="${DEVICE_VOLUME}"
+  VOLUME="${DEVICE_VOLUME:-60}"
 fi
 
 ### Set the primary card volume to 100%

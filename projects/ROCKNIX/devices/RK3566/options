@@ -87,6 +87,13 @@
   # Build and install rocknix out-of-tree device trees and overlays (yes / no)
     ROCKNIX_DEVICE_TREE_OVERLAYS="yes"
 
+  # Default startup volume in percent (see packages/rocknix/autostart/050-audio).
+  # Only used when the user has no saved audio.volume yet; their own setting wins
+  # afterwards. Stock fallback is 60, which is noticeably quiet on the TV boxes
+  # this device targets -- they drive external speakers/TV through HDMI, unlike
+  # the handhelds ROCKNIX usually runs on.
+    DEVICE_VOLUME="80"
+
   # ZRAM Algorithm
     ZRAM_COMPRESSION_ALGO="lzo-rle"
 
