@@ -79,12 +79,16 @@ jobs:
         run: |
           set -euo pipefail
           cd profiles
+          cp manifest.json /tmp/manifest.committed.json
           sh tools/gen_manifest.sh >/dev/null
-          if ! git diff --quiet -- manifest.json; then
-            echo "::error::manifest.json is stale -- regenerate it in es4all-profiles and push"
-            git --no-pager diff -- manifest.json | head -40
-            exit 1
-          fi
+          # Compare the payload only -- NOT the whole file.
+          # gen_manifest.sh bumps "version" (YYYY.MM.DD.N) on every run, so a plain
+          # `git diff --quiet manifest.json` can never come back clean: it would fail
+          # on a perfectly healthy repo, every single time. It did exactly that on its
+          # first real run. What matters is whether the file list and the md5s still
+          # describe the files that are actually there.
+          python3 -c "import json,sys; a=json.load(open('manifest.json',encoding='utf-8')); b=json.load(open('/tmp/manifest.committed.json',encoding='utf-8')); fa={x['path']:x.get('md5') for x in a.get('files',[])}; fb={x['path']:x.get('md5') for x in b.get('files',[])}; d=[p for p in sorted(set(fa)|set(fb)) if fa.get(p)!=fb.get(p)]; print('::error::manifest.json is stale -- run tools/gen_manifest.sh in es4all-profiles and push') if d else None; [print('  %s: committed=%s actual=%s' % (p, fb.get(p), fa.get(p))) for p in d[:40]]; sys.exit(1 if d else 0); " || exit 1
+          echo "manifest OK"
           echo "manifest OK"
 
       - name: Download base image
