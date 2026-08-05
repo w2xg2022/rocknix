@@ -130,6 +130,22 @@ jobs:
           sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1M
           sudo cp SYSTEM.new /mnt/flash/SYSTEM
           sync
+
+          # Zero the free space before re-compressing.
+          #
+          # Replacing SYSTEM leaves the OLD file's blocks sitting in the partition's
+          # free space as garbage. The image itself is no bigger -- in fact the new
+          # SYSTEM is smaller -- but gzip can no longer squash that area, which used
+          # to be zeros. Measured on MD1000 (2026-08-05): 698 MB -> 1.29 GB, +85%,
+          # for a payload of a few hundred KB. Nothing warns you: the image is
+          # perfectly valid, just twice the download.
+          #
+          # Filling the remainder with zeros and deleting the file restores the
+          # compressibility. dd is expected to end with ENOSPC -- that IS the
+          # success condition here, hence `|| true`.
+          sudo dd if=/dev/zero of=/mnt/flash/ZERO.tmp bs=1M status=none || true
+          sudo rm -f /mnt/flash/ZERO.tmp
+          sync
           sudo umount /mnt/flash
           sudo losetup -d "$LOOP"
 
