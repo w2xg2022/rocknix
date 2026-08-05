@@ -144,6 +144,12 @@ jobs:
           # compressibility. dd is expected to end with ENOSPC -- that IS the
           # success condition here, hence `|| true`.
           sudo dd if=/dev/zero of=/mnt/flash/ZERO.tmp bs=1M status=none || true
+          # sync BEFORE rm -- this is the whole trick.
+          # Deleting the file while its pages are still dirty makes the kernel drop
+          # them: the zeros never reach the image and the free space stays garbage.
+          # Measured (MD1000, 2026-08-05): rm-then-sync 829 MB vs sync-then-rm 698 MB,
+          # against a pristine 698 MB. Same commands, one line apart, 19% difference.
+          sync
           sudo rm -f /mnt/flash/ZERO.tmp
           sync
           sudo umount /mnt/flash
