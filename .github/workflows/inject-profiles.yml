@@ -57,7 +57,17 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install host tools
-        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y squashfs-tools
+          # maximize-github-runner-space wipes the preinstalled gh; reinstall it
+          # or the publish step dies with "gh: command not found" (it did, once).
+          if ! command -v gh >/dev/null 2>&1; then
+            GHV=2.63.2
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GHV}/gh_${GHV}_linux_amd64.tar.gz" | tar xz -C /tmp
+            sudo install -m755 "/tmp/gh_${GHV}_linux_amd64/bin/gh" /usr/local/bin/gh
+          fi
+          gh --version
 
       - name: Fetch es4all-profiles
         id: profiles
