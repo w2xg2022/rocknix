@@ -36,12 +36,17 @@ on:
         description: "release tag to publish the injected image to (empty = artifact only)"
         default: ""
         type: string
+      OUT_NAME:
+        description: "output image file name (empty = same name as the stock image, so it overwrites it)"
+        default: ""
+        type: string
 
 env:
   PROJECT: ROCKNIX
   DEVICE: RK3566
   ARCH: aarch64
   BOARD: ${{ inputs.BOARD }}
+  OUT_NAME: ${{ inputs.OUT_NAME }}
 
 jobs:
   inject-profiles:
@@ -141,7 +146,10 @@ jobs:
           echo "- executables under bin/: \`$(sudo find "$DEST" -path '*/bin/*' -perm -u+x -type f | wc -l)\`" >> "$GITHUB_STEP_SUMMARY"
           sudo find "$DEST" -maxdepth 1 -mindepth 1 | head -20
 
-          sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp gzip -Xcompression-level 9 -b 262144
+          # 必须与本项目构建时的参数一致(projects/ROCKNIX/options: SQUASHFS_COMPRESSION="zstd",
+          # scripts/image 对应 -Xcompression-level 19 -b 1048576)。曾经这里写成 gzip -9,
+          # 结果重打包出来的 SYSTEM 比原版大一大截,整个 img.gz 也跟着变大。
+          sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1048576
           sudo cp SYSTEM.new /mnt/flash/SYSTEM
           sync
 
@@ -172,8 +180,23 @@ jobs:
       - name: Repackage
         run: |
           set -euo pipefail
-          OUT="${BOARD}-profiles-$(date -u +%Y%m%d%H%M).img.gz"
-          gzip -c base.img > "$OUT"
+          sudo apt-get install -y pigz
+          # 输出文件名要跟原版固件【完全一致】,这样发布时 --clobber 才会覆盖掉原来那颗
+          # ROCKNIX-RK3566.aarch64-<日期>-MD1000.img.gz,而不是在 release 里多出一颗
+          # 名字不一样的镜像(用户会不知道该刷哪个)。
+          #   日期取自 RELEASE_TAG(fw-YYYYMMDD);没给 tag 时才退回当天日期。
+          #   机型取自 BOARD(rk3566-md1000 -> MD1000)。
+          if [ -n "${OUT_NAME}" ]; then
+            OUT="${OUT_NAME}"
+          else
+            D=$(echo "${{ inputs.RELEASE_TAG }}" | sed -n 's/^fw-\([0-9]\{8\}\).*/\1/p')
+            [ -n "$D" ] || D=$(date -u +%Y%m%d)
+            MODEL=$(echo "${BOARD}" | sed 's/^[^-]*-//' | tr '[:lower:]' '[:upper:]')
+            OUT="ROCKNIX-${DEVICE}.${ARCH}-${D}-${MODEL}.img.gz"
+          fi
+          # pigz --best:与 scripts/mkimage 打包原版镜像时同一档压缩率。
+          # 之前用 gzip 默认的 -6,压出来必然比原版大。
+          pigz --best -c base.img > "$OUT"
           ls -la "$OUT"
           echo "OUT=$OUT" >> "$GITHUB_ENV"
 
