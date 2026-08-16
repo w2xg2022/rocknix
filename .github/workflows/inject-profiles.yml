@@ -32,6 +32,10 @@ on:
         description: "board (output image naming only)"
         default: "rk3566-md1000"
         type: string
+      RELEASE_TAG:
+        description: "release tag to publish the injected image to (empty = artifact only)"
+        default: ""
+        type: string
 
 env:
   PROJECT: ROCKNIX
@@ -169,3 +173,24 @@ jobs:
           name: image-with-profiles
           path: ${{ env.OUT }}
           retention-days: 7
+
+      - name: Publish to release (only when RELEASE_TAG is set)
+        if: ${{ inputs.RELEASE_TAG != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum "${OUT}" > "${OUT}.sha256"
+          if gh release view "${{ inputs.RELEASE_TAG }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "${{ inputs.RELEASE_TAG }}" "${OUT}" "${OUT}.sha256" --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "${{ inputs.RELEASE_TAG }}" "${OUT}" "${OUT}.sha256" --repo "${{ github.repository }}" \
+              --title "ROCKNIX ${{ inputs.RELEASE_TAG }}" \
+              --notes "ES4All profiles baked in as first-boot baseline."
+          fi
+          # provenance: record which profiles commit is inside the image
+          gh release view "${{ inputs.RELEASE_TAG }}" --repo "${{ github.repository }}" --json body --jq .body > /tmp/notes.md || true
+          grep -v "es4all-profiles baked in" /tmp/notes.md > /tmp/notes2.md || true
+          printf '\nes4all-profiles baked in: %s (manifest %s)\n' \
+            "${{ steps.profiles.outputs.sha }}" "${{ steps.profiles.outputs.version }}" >> /tmp/notes2.md
+          gh release edit "${{ inputs.RELEASE_TAG }}" --repo "${{ github.repository }}" --notes-file /tmp/notes2.md
