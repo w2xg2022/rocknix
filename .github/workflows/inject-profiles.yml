@@ -184,8 +184,9 @@ jobs:
           if gh release view "${{ inputs.RELEASE_TAG }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "${{ inputs.RELEASE_TAG }}" "${OUT}" "${OUT}.sha256" --repo "${{ github.repository }}" --clobber
           else
+            D="$(echo "${{ inputs.RELEASE_TAG }}" | sed 's/^fw-//')"
             gh release create "${{ inputs.RELEASE_TAG }}" "${OUT}" "${OUT}.sha256" --repo "${{ github.repository }}" \
-              --title "ROCKNIX ${{ inputs.RELEASE_TAG }}" \
+              --title "Firmware ${D}" \
               --notes "ES4All profiles baked in as first-boot baseline."
           fi
           # provenance: record which profiles commit is inside the image
