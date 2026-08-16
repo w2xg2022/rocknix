@@ -127,7 +127,7 @@ jobs:
           echo "- executables under bin/: \`$(sudo find "$DEST" -path '*/bin/*' -perm -u+x -type f | wc -l)\`" >> "$GITHUB_STEP_SUMMARY"
           sudo find "$DEST" -maxdepth 1 -mindepth 1 | head -20
 
-          sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp zstd -Xcompression-level 19 -b 1M
+          sudo mksquashfs SYSTEM.d SYSTEM.new -noappend -comp gzip -Xcompression-level 9 -b 262144
           sudo cp SYSTEM.new /mnt/flash/SYSTEM
           sync
 
